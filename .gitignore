@@ -1,0 +1,62 @@
+# ── Python ────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+build/
+dist/
+wheels/
+*.whl
+.eggs/
+
+# ── 虚拟环境 ──────────────────────────────────────────────
+.venv/
+venv/
+env/
+.env
+
+# ── 测试 / 覆盖率 ────────────────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage/
+.tox/
+.nox/
+
+# ── 工具缓存 ─────────────────────────────────────────────
+.ruff_cache/
+.mypy_cache/
+.dmypy.json
+.pytype/
+.pyre/
+*.bloom
+*.py.typed
+
+# ── PyInstaller ───────────────────────────────────────────
+# 打包产物不进版本库，本地生成
+dist/
+
+# ── IDE / 编辑器 ─────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-workspace
+*.sublime-project
+
+# ── 日志 / 临时文件 ──────────────────────────────────────
+*.log
+*.tmp
+*.bak
+__debug__
+__pycache__/
+
+# ── 项目特定 ────────────────────────────────────────────
+# 本地生成的测试文档
+*.docx.test
+*.xlsx.test
