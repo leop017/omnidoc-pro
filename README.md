@@ -188,7 +188,7 @@ omnidoc-pro/
 
 - 开源许可证全文见 [LICENSE](./LICENSE)（GPL v3）
 - 商业许可条款见 [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md)
-- 商业授权请联系：omnidoc-pro@example.com
+- 商业授权请联系：leop@astermail.org
 
 > 详见下方「[许可证详情](#许可证详情)」章节。
 
@@ -248,5 +248,5 @@ ruff check .
 ## 📮 联系
 
 - 项目主页：https://github.com/leop017/omnidoc-pro
-- 商业授权咨询：omnidoc-pro@example.com
+- 商业授权咨询：leop@astermail.org
 - 提交 Issue 请遵循 [贡献指南](./CONTRIBUTING.md) 中的格式规范
