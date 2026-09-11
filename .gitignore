@@ -56,6 +56,10 @@ Thumbs.db
 __debug__
 __pycache__/
 
+# ── Local tool sandboxes ─────────────────────────────────
+.tools/
+.venv-tools/
+
 # ── 项目特定 ────────────────────────────────────────────
 # 本地生成的测试文档
 *.docx.test
