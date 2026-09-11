@@ -61,7 +61,7 @@ full = [
 ]
 
 [project.urls]
-Homepage = "https://example.com/omnidoc-pro"
+Homepage = "https://github.com/leop017/omnidoc-pro"
 
 [project.scripts]
 omnidoc = "omnidoc.ui.cli:main"

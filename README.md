@@ -214,7 +214,7 @@ omnidoc-pro/
 
 ```bash
 # 克隆仓库
-git clone https://github.com/your-org/omnidoc-pro.git
+git clone https://github.com/leop017/omnidoc-pro.git
 cd omnidoc-pro
 
 # 创建虚拟环境
@@ -247,6 +247,6 @@ ruff check .
 
 ## 📮 联系
 
-- 项目主页：omnidoc-pro.example.com
+- 项目主页：https://github.com/leop017/omnidoc-pro
 - 商业授权咨询：omnidoc-pro@example.com
 - 提交 Issue 请遵循 [贡献指南](./CONTRIBUTING.md) 中的格式规范
