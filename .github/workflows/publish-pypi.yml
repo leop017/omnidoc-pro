@@ -54,12 +54,14 @@ jobs:
         id: skip
         shell: bash
         run: |
-          # Version is authoritative in pyproject.toml (kept in sync with dist filenames)
+          set +e
           version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           echo "::notice::Checking PyPI for existing ${version}..."
           if curl -fsSL "https://pypi.org/pypi/omnidoc-pro/${version}/json" >/dev/null 2>&1; then
             echo "::notice::omnidoc-pro ${version} already on PyPI, skipping upload."
             echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::omnidoc-pro ${version} not on PyPI, will upload."
           fi
 
       - name: Upload to PyPI
