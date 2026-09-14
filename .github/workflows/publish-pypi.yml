@@ -60,14 +60,29 @@ jobs:
             exit 0
           fi
           echo "::notice::Extracted version: ${version}"
-          code=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${version}/json" || echo "000")
-          echo "::notice::PyPI HTTP status for ${version}: ${code}"
-          if [ "$code" = "200" ]; then
+          status=$(OMNIDOC_VERSION="${version}" python - <<'PY'
+import os, urllib.request, urllib.error
+try:
+    req = urllib.request.Request(
+        "https://pypi.org/pypi/omnidoc-pro/%s/json" % os.environ["OMNIDOC_VERSION"],
+        headers={"User-Agent": "omnidoc-pro-ci"},
+    )
+    urllib.request.urlopen(req, timeout=30)
+    print("200")
+except urllib.error.HTTPError as e:
+    print(str(e.code))
+except Exception:
+    print("ERR")
+PY
+          )
+          echo "::notice::PyPI HTTP status for ${version}: ${status}"
+          if [ "$status" = "200" ]; then
             echo "::notice::omnidoc-pro ${version} already on PyPI, skipping upload."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::omnidoc-pro ${version} not confirmed on PyPI (HTTP ${code}), will upload."
+            echo "::notice::omnidoc-pro ${version} not confirmed on PyPI (status ${status}), will upload."
           fi
+          exit 0
 
       - name: Upload to PyPI
         if: ${{ steps.skip.outputs.skip != 'true' }}
@@ -83,10 +98,25 @@ jobs:
         run: |
           version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           echo "::notice::Verifying omnidoc-pro ${version} on PyPI..."
-          code=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${version}/json" || echo "000")
-          echo "::notice::PyPI HTTP status for ${version}: ${code}"
-          if [ "$code" != "200" ]; then
-            echo "::warning::omnidoc-pro ${version} may still be propagating (PyPI has a short delay). Re-check https://pypi.org/project/omnidoc-pro/ in a few minutes."
-          else
+          status=$(OMNIDOC_VERSION="${version}" python - <<'PY'
+import os, urllib.request, urllib.error
+try:
+    req = urllib.request.Request(
+        "https://pypi.org/pypi/omnidoc-pro/%s/json" % os.environ["OMNIDOC_VERSION"],
+        headers={"User-Agent": "omnidoc-pro-ci"},
+    )
+    urllib.request.urlopen(req, timeout=30)
+    print("200")
+except urllib.error.HTTPError as e:
+    print(str(e.code))
+except Exception:
+    print("ERR")
+PY
+          )
+          echo "::notice::PyPI HTTP status for ${version}: ${status}"
+          if [ "$status" = "200" ]; then
             echo "::notice::omnidoc-pro ${version} confirmed on PyPI."
+          else
+            echo "::warning::omnidoc-pro ${version} not confirmed on PyPI yet (status ${status}); PyPI has a short propagation delay — re-check https://pypi.org/project/omnidoc-pro/ in a few minutes."
           fi
+          exit 0
