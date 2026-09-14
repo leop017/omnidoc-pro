@@ -53,8 +53,9 @@ jobs:
       - name: Install deps
         run: |
           pip install pyinstaller
-          # spec 里 collect_all 依赖 gradio / markitdown / magika 等可选依赖，必须装全量
-          pip install -e .[markitdown,gui,llm,cli]
+          # 必须装全量可选依赖，与 0.1.0 本地构建环境对齐（spec 里 collect_all 依赖 gradio/markitdown/magika 等的完整依赖树）
+          # markitdown[all] 带全引擎（PDF/PPT/图片/音频/URL），collect_all('markitdown') 才能收全
+          pip install -e ".[markitdown-all,gui,llm,cli,test,legacy-doc]"
 
       - name: Build CLI exe
         run: |
@@ -69,7 +70,7 @@ jobs:
 
       - name: List exe artifacts
         run: |
-          Get-ChildItem dist\*.exe | ForEach-Object { $_.Name }
+          Get-ChildItem dist\*.exe | ForEach-Object { "$($_.Name)  ($([math]::Round($_.Length/1MB,1)) MB)" }
 
       - name: Upload exe artifacts
         uses: actions/upload-artifact@v4
