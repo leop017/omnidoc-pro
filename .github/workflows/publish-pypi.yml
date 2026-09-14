@@ -50,7 +50,18 @@ jobs:
       - name: Install twine
         run: pip install --upgrade twine
 
+      - name: Skip if version already published
+        id: skip
+        shell: bash
+        run: |
+          version=$(ls dist | grep -oE 'omnidoc_pro-[0-9.]+(-py[0-9]|\.tar)' | grep -oE '[0-9.]+$' | sort -u | tail -n 1)
+          if curl -fsSL "https://pypi.org/pypi/omnidoc-pro/${version}/json" >/dev/null 2>&1; then
+            echo "::notice::omnidoc-pro ${version} already published on PyPI, skipping upload."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Upload to PyPI
+        if: ${{ steps.skip.outputs.skip != 'true' }}
         run: |
           twine upload --repository-url https://upload.pypi.org/legacy/ \
             -u "${{ secrets.PYPI_USERNAME }}" \
