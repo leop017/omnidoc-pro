@@ -50,18 +50,23 @@ jobs:
       - name: Install twine
         run: pip install --upgrade twine
 
-      - name: Skip if version already published
+      - name: Check if version already published
         id: skip
         shell: bash
         run: |
-          set +e
           version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "::notice::Checking PyPI for existing ${version}..."
-          if curl -fsSL "https://pypi.org/pypi/omnidoc-pro/${version}/json" >/dev/null 2>&1; then
+          if [ -z "$version" ]; then
+            echo "::error::Could not extract version from pyproject.toml; refusing to skip so we always attempt upload."
+            exit 0
+          fi
+          echo "::notice::Extracted version: ${version}"
+          code=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${version}/json" || echo "000")
+          echo "::notice::PyPI HTTP status for ${version}: ${code}"
+          if [ "$code" = "200" ]; then
             echo "::notice::omnidoc-pro ${version} already on PyPI, skipping upload."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::omnidoc-pro ${version} not on PyPI, will upload."
+            echo "::notice::omnidoc-pro ${version} not confirmed on PyPI (HTTP ${code}), will upload."
           fi
 
       - name: Upload to PyPI
@@ -71,3 +76,17 @@ jobs:
             -u "${{ secrets.PYPI_USERNAME }}" \
             -p "${{ secrets.PYPI_TOKEN }}" \
             dist/*
+
+      - name: Verify upload succeeded
+        if: ${{ steps.skip.outputs.skip != 'true' }}
+        shell: bash
+        run: |
+          version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "::notice::Verifying omnidoc-pro ${version} on PyPI..."
+          code=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${version}/json" || echo "000")
+          echo "::notice::PyPI HTTP status for ${version}: ${code}"
+          if [ "$code" != "200" ]; then
+            echo "::warning::omnidoc-pro ${version} may still be propagating (PyPI has a short delay). Re-check https://pypi.org/project/omnidoc-pro/ in a few minutes."
+          else
+            echo "::notice::omnidoc-pro ${version} confirmed on PyPI."
+          fi
