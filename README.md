@@ -19,7 +19,6 @@
 <p>
   <a href="https://pypistats.org/package/omnidoc-pro"><img alt="PyPI 月下载" src="https://img.shields.io/pypi/dm/omnidoc-pro"></a>
   <a href="https://pypi.org/project/omnidoc-pro/#python-compatibility"><img alt="PyPI 支持版本" src="https://img.shields.io/pypi/pyversions/omnidoc-pro"></a>
-  <a href="https://spdx.org/licenses/GPL-3.0-or-later.html"><img alt="PyPI 许可" src="https://img.shields.io/pypi/license/omnidoc-pro"></a>
 </p>
 
 ## ✨ 核心特性
