@@ -1,0 +1,87 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      testpypi:
+        description: "Upload to TestPyPI before PyPI"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build
+        run: pip install --upgrade build
+
+      - name: Build sdist + wheel
+        run: python -m build --outdir dist
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish-testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.testpypi == 'true'
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Install twine
+        run: pip install --upgrade twine
+
+      - name: Upload to TestPyPI
+        run: |
+          twine upload --repository-url https://test.pypi.org/legacy/ \
+            -u "${{ secrets.PYPI_USERNAME }}" \
+            -p "${{ secrets.PYPI_TEST_TOKEN }}" \
+            dist/*
+
+  publish-pypi:
+    needs: [build, publish-testpypi]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Install twine
+        run: pip install --upgrade twine
+
+      - name: Upload to PyPI
+        run: |
+          twine upload --repository-url https://upload.pypi.org/legacy/ \
+            -u "${{ secrets.PYPI_USERNAME }}" \
+            -p "${{ secrets.PYPI_TOKEN }}" \
+            dist/*

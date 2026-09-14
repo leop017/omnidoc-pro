@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build
+        run: pip install --upgrade build
+
+      - name: Build sdist + wheel
+        run: python -m build --outdir dist
+
+      - name: List artifacts
+        run: ls -lh dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: Collect asset paths
+        id: assets
+        shell: bash
+        run: |
+          assets=$(find dist -maxdepth 1 \( -name 'omnidoc_pro-*.whl' -o -name 'omnidoc_pro-*.tar.gz' \) | sort | tr '\n' ' ')
+          echo "paths=$assets" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          DIST: ${{ steps.assets.outputs.paths }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" \
+            --title "$tag - OmniDoc Pro" \
+            --target main \
+            --repo "$GITHUB_REPOSITORY" \
+            ${DIST}
+
+      - name: Append release notes
+        if: ${{ steps.assets.outputs.paths != '' }}
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          core="${version%%-*}"
+          notes_file="RELEASE_NOTES/${core}.md"
+          tag="${GITHUB_REF_NAME}"
+          if [[ -f "$notes_file" ]]; then
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$notes_file"
+            echo "::info::Appended notes from $notes_file"
+          fi
