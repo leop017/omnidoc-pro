@@ -259,7 +259,10 @@ ruff check .
 
 - [`.github/workflows/release.yml`](./.github/workflows/release.yml)
   触发：`push` 到 `v*.*.*` tag
-  流程：build（wheel + sdist）→ 创建 GitHub Release（自动附上 `RELEASE_NOTES/X.Y.Z.md` 作为 release notes）
+  流程：
+  - Linux（`build`）：构建 sdist + wheel
+  - Windows（`build-exe`）：用 PyInstaller 打包 `omnidoc.exe`（CLI）与 `omnidoc-web.exe`（WebUI）
+  - `release`：创建 GitHub Release，把以上 4 个文件一并附上（自动带 `RELEASE_NOTES/X.Y.Z.md` 作为 release notes）
   所需 secret：`GITHUB_TOKEN`（内置，无需配置）
 
 - [`.github/workflows/publish-pypi.yml`](./.github/workflows/publish-pypi.yml)

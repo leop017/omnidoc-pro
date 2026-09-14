@@ -9,14 +9,13 @@ permissions:
   contents: write
 
 jobs:
+  # sdist + wheel — 平台无关，在 Linux 上构建
   build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,18 +37,66 @@ jobs:
           name: dist
           path: dist/
 
+  # PyInstaller exe — 只能在 Windows 上构建（.exe 平台相关）
+  build-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          pip install pyinstaller
+          # spec 里 collect_all 依赖 gradio / markitdown / magika 等可选依赖，必须装全量
+          pip install -e .[markitdown,gui,llm,cli]
+
+      - name: Build CLI exe
+        run: |
+          # PyInstaller --distpath 默认输出到 ./dist，spec 已用 name=omnidoc
+          python -m PyInstaller omnidoc.spec --clean --noconfirm
+          if (-not (Test-Path "dist\omnidoc.exe")) { Write-Error "omnidoc.exe not found in dist" }
+
+      - name: Build WebUI exe
+        run: |
+          python -m PyInstaller omnidoc-web.spec --clean --noconfirm
+          if (-not (Test-Path "dist\omnidoc-web.exe")) { Write-Error "omnidoc-web.exe not found in dist" }
+
+      - name: List exe artifacts
+        run: |
+          Get-ChildItem dist\*.exe | ForEach-Object { $_.Name }
+
+      - name: Upload exe artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: exe
+          path: |
+            dist/omnidoc.exe
+            dist/omnidoc-web.exe
+
   release:
-    needs: build
+    needs: [build, build-exe]
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download artifacts
+      - name: Download sdist/wheel
         uses: actions/download-artifact@v4
         with:
           name: dist
+          path: dist
+
+      - name: Download exes
+        uses: actions/download-artifact@v4
+        with:
+          name: exe
           path: dist
 
       - name: Check release notes
@@ -68,12 +115,13 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: ${{ steps.notes.outputs.exists == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/*
           generate_release_notes: false
           body: |
+            ## 版本 ${GITHUB_REF_NAME}
             详细更新日志请见 `RELEASE_NOTES/${{ steps.notes.outputs.version }}.md`。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
