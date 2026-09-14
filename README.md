@@ -241,11 +241,11 @@ ruff check .
 $env:GH_TOKEN="<GitHub OAuth token>"
 $env:PYPI_TOKEN="<PyPI API token>"
 
-# 发布到 TestPyPI（默认，安全）
+# 发布到正式 PyPI（默认）
 python scripts/release.py all v0.2.0
 
-# 发布到正式 PyPI（需先确认包名未被占用）
-python scripts/release.py all v0.2.0 --prod
+# 如已注册 TestPyPI，可用 --test 改传到 TestPyPI
+python scripts/release.py all v0.2.0 --test
 
 # 单独构建 PyInstaller exe（10-30 分钟）
 python scripts/release.py exe

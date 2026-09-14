@@ -4,8 +4,8 @@
     python scripts/release.py build             # 构建 wheel + sdist
     python scripts/release.py tag v0.2.0        # 打 tag 并 push
     python scripts/release.py release v0.2.0    # 创建 GitHub Release（附 exe/wheel/sdist）
-    python scripts/release.py pypi              # 上传到 TestPyPI（默认）
-    python scripts/release.py pypi --prod       # 上传到正式 PyPI
+    python scripts/release.py pypi              # 上传到正式 PyPI（默认）
+    python scripts/release.py pypi --test       # 上传到 TestPyPI（需要先有 TestPyPI 账号）
     python scripts/release.py all v0.2.0        # build + tag + release + pypi 一条龙
     python scripts/release.py exe               # 单独构建 PyInstaller exe（10-30 分钟）
 
@@ -134,18 +134,18 @@ def cmd_release(args: argparse.Namespace) -> None:
 
 
 def cmd_pypi(args: argparse.Namespace) -> None:
-    """上传到 PyPI / TestPyPI。"""
+    """上传到 PyPI（默认正式，--test 走 TestPyPI）。"""
     token = os.environ.get("PYPI_TOKEN")
     if not token:
         sys.exit("f: 缺少 PYPI_TOKEN 环境变量")
     username = os.environ.get("PYPI_USERNAME", "__token__")
-    url = "https://upload.pypi.org/legacy/" if args.prod else "https://test.pypi.org/legacy/"
+    url = "https://test.pypi.org/legacy/" if args.test else "https://upload.pypi.org/legacy/"
     ensure_twine()
     files = require_dist_artifacts()
     args_ = [sys.executable, "-m", "twine", "upload",
              "-u", username, "-p", token,
              "--repository-url", url] + [str(f) for f in files]
-    print(f"[pypi] 目标: {'正式 PyPI' if args.prod else 'TestPyPI'}")
+    print(f"[pypi] 目标: {'TestPyPI' if args.test else '正式 PyPI'}")
     sh(args_)
     print(f"[pypi] 上传完成: {[f.name for f in files]}")
 
@@ -189,7 +189,7 @@ def main() -> int:
     pr.add_argument("tag")
 
     pp = sub.add_parser("pypi", help="上传到 PyPI / TestPyPI")
-    pp.add_argument("--prod", action="store_true", help="传到正式 PyPI（默认 TestPyPI）")
+    pp.add_argument("--test", action="store_true", help="改传到 TestPyPI（默认正式 PyPI）")
 
     pa = sub.add_parser("all", help="build + tag + release + pypi 一条龙")
     pa.add_argument("tag")
