@@ -114,6 +114,17 @@ def cmd_tag(args: argparse.Namespace) -> None:
     print(f"[tag] {tag} 已推送")
 
 
+def _find_release_notes(tag: str) -> Path | None:
+    """按 tag 查找 RELEASE_NOTES/x.y.z.md（如 v0.2.0 → 0.2.0.md）。"""
+    version = tag.lstrip("vV")
+    # 去掉可能的预发布后缀（-alpha / -rc1）
+    core = re.split(r"[-+]", version)[0]
+    candidate = ROOT / "RELEASE_NOTES" / f"{core}.md"
+    if candidate.exists():
+        return candidate
+    return None
+
+
 def cmd_release(args: argparse.Namespace) -> None:
     """创建 GitHub Release 并上传附件。"""
     token = os.environ.get("GH_TOKEN")
@@ -124,9 +135,12 @@ def cmd_release(args: argparse.Namespace) -> None:
     args_ = ["gh", "release", "create", args.tag,
              "--title", f"{args.tag} - OmniDoc Pro",
              "--target", "main", "--repo", GH_REPO]
-    notes = ROOT / "RELEASE_NOTES.md"
-    if notes.exists():
+    notes = _find_release_notes(args.tag)
+    if notes:
         args_ += ["--notes-file", str(notes)]
+        print(f"[release] 使用发布说明: {notes.name}")
+    else:
+        print(f"[release] 未找到 RELEASE_NOTES/{args.tag.lstrip('vV')}.md，将使用空 notes（可稍后用 gh release edit 补）")
     args_ += [str(a) for a in assets]
     print(f"[release] 附件: {[a.name for a in assets]}")
     sh(args_, env=env)
