@@ -152,13 +152,17 @@ def _run_bounded(client: Any, llm: dict[str, Any], refs: list[str]) -> list[str]
     in-flight requests.
     """
     max_concurrency = max(1, int(llm.get("max_concurrency", DEFAULT_MAX_CONCURRENCY)))
-    sem = asyncio.Semaphore(max_concurrency)
 
-    async def _describe(ref: str) -> str:
-        async with sem:
-            return await asyncio.to_thread(_describe_one, client, llm, ref)
+    async def _main() -> list[Any]:
+        sem = asyncio.Semaphore(max_concurrency)
 
-    results = asyncio.run(asyncio.gather(*(_describe(r) for r in refs), return_exceptions=True))
+        async def _describe(ref: str) -> str:
+            async with sem:
+                return await asyncio.to_thread(_describe_one, client, llm, ref)
+
+        return list(await asyncio.gather(*(_describe(r) for r in refs), return_exceptions=True))
+
+    results = asyncio.run(_main())
     return [r if isinstance(r, str) else "" for r in results]
 
 
