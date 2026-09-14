@@ -122,7 +122,7 @@ jobs:
             dist/*
           generate_release_notes: false
           body: |
-            ## 版本 ${GITHUB_REF_NAME}
+            ## 版本 ${{ steps.notes.outputs.version }}
             详细更新日志请见 `RELEASE_NOTES/${{ steps.notes.outputs.version }}.md`。
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
