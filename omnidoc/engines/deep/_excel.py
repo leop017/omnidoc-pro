@@ -57,11 +57,11 @@ class ExcelBuilder:
             existing = [sn for sn in sheets if sn in all_names]
             if not existing:
                 return {}
-            all_sheets = pd.read_excel(input_path, sheet_name=existing, engine=engine)
+            all_sheets = pd.read_excel(input_path, sheet_name=existing, engine=engine, header=None)
             if not isinstance(all_sheets, dict):
                 all_sheets = {existing[0]: all_sheets}
             return all_sheets
-        return pd.read_excel(input_path, sheet_name=None, engine=engine)
+        return pd.read_excel(input_path, sheet_name=None, engine=engine, header=None)
 
     @staticmethod
     def _get_all_sheet_names(input_path: str, ext: str) -> list[str]:
@@ -140,19 +140,24 @@ class ExcelBuilder:
         return merged_map
 
     def _df_to_rows(self, df: pd.DataFrame) -> list[list[str]]:
+        # With header=None, all rows are data rows (including the original
+        # "header" row of the sheet). df.values.tolist() returns every row
+        # directly; no column-name reconstruction needed.
         rows_data = []
-        rows_data.append([safe_str(c) for c in df.columns.tolist()])
-        for _, row in df.iterrows():
-            rows_data.append([safe_str(v) for v in row.tolist()])
+        for row in df.values.tolist():
+            rows_data.append([safe_str(v) for v in row])
         return rows_data
 
     @staticmethod
     def _filter_merges_for_dropped_rows(merged_ranges: list, dropped_df_indices: set) -> list:
+        # With header=None, DataFrame index i corresponds to workbook row i+1.
+        # A merge spans dropped rows if any of its workbook rows (1-indexed)
+        # maps to a dropped DataFrame index.
         filtered: list = []
         for merged in merged_ranges:
             min_col, min_row, max_col, max_row = merged.bounds
             spans_dropped = any(
-                (row - 2) in dropped_df_indices
+                (row - 1) in dropped_df_indices
                 for row in range(min_row, max_row + 1)
             )
             if not spans_dropped:
@@ -161,9 +166,15 @@ class ExcelBuilder:
 
     @staticmethod
     def _remap_merged_rows(merged_ranges: list, df: pd.DataFrame) -> list:
-        wb_to_rendered = {1: 1}
-        for pos, orig_idx in enumerate(df.index):
-            wb_to_rendered[orig_idx + 2] = 2 + pos
+        # With header=None, DataFrame index i = workbook row i+1 (identity).
+        # After dropna, some rows are removed; the surviving rows shift up.
+        # Build workbook-row → rendered-row map: workbook row (i+1) →
+        # rendered position (2 + i) when row 1 is the header-like first row,
+        # or simply (i+1) for all rows including the first.
+        # In this codebase the first rendered row (index 0 in rows_data) is
+        # treated as the header row (tag="th"), so rendered position of
+        # DataFrame index i is (i + 1).
+        wb_to_rendered = {orig_idx + 1: orig_idx + 1 for orig_idx in df.index}
         remapped: list = []
         for merged in merged_ranges:
             min_col, min_row, max_col, max_row = merged.bounds
@@ -238,14 +249,27 @@ class ExcelBuilder:
         if enhanced:
             md = self._generate_md_via_html(rows_data, merged_map, max_cols, sheet_name)
         else:
-            md = self._generate_md_standard(df, sheet_name)
+            md = self._generate_md_standard(rows_data, max_cols)
         return (
             f"<!-- source: {source_name} | sheet: {sheet_name}"
             f" | rows: {len(rows_data) - 1} | cols: {max_cols} -->\n\n{md}"
         )
 
-    def _generate_md_standard(self, df: pd.DataFrame, sheet_name: str) -> str:
-        html_content = df.to_html(index=False, na_rep="")
+    def _generate_md_standard(self, rows_data: list, max_cols: int) -> str:
+        # Build the table directly from rows_data (row 1 = <thead>, the rest
+        # = <tbody>) instead of the DataFrame, whose column labels are
+        # integer/``Unnamed`` under header=None and must never be rendered.
+        def _cell(v: Any, tag: str) -> str:
+            text = html_mod.escape(escape_md_cell(safe_str(v)))
+            return f"<{tag}>&nbsp;</{tag}>" if text == "" else f"<{tag}>{text}</{tag}>"
+
+        head = rows_data[0] if rows_data else []
+        head_cells = "".join(_cell(head[c] if c < len(head) else "", "th") for c in range(max_cols))
+        html_rows = [f"<tr>{head_cells}</tr>"]
+        for row_data in rows_data[1:]:
+            cells = "".join(_cell(row_data[c] if c < len(row_data) else "", "td") for c in range(max_cols))
+            html_rows.append(f"<tr>{cells}</tr>")
+        html_content = "<table>" + "\n".join(html_rows) + "</table>"
         return html_to_md(self._escape_table_cells(html_content))
 
     @staticmethod
@@ -505,6 +529,16 @@ def _generate_json_data(rows_data: list, merged_map: dict, sheet_name: str) -> d
                 if c < len(rows_data[r]) and rows_data[r][c]:
                     headers[c] = rows_data[r][c]
                     break
+
+    # header=None treats the first row as plain data, so pandas may name the
+    # columns ``0, 1, 2`` or ``Unnamed: N`` when the first row has blanks.
+    # Sanitise the header list: replace anything that matches those patterns
+    # with a stable ``col_{n}`` placeholder so downstream JSON keys stay clean.
+    import re
+    _col_re = re.compile(r'^(Unnamed:\s*\d+|\d+)$')
+    for i, h in enumerate(headers, start=1):
+        if _col_re.match(str(h)):
+            headers[i - 1] = f"col_{i}"
 
     merged_cells_info = [
         {"row": k[0], "col": k[1], "rowspan": v.rowspan, "colspan": v.colspan}
