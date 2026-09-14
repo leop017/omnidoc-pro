@@ -54,9 +54,11 @@ jobs:
         id: skip
         shell: bash
         run: |
-          version=$(ls dist | grep -oE 'omnidoc_pro-[0-9.]+(-py[0-9]|\.tar)' | grep -oE '[0-9.]+$' | sort -u | tail -n 1)
+          # Version is authoritative in pyproject.toml (kept in sync with dist filenames)
+          version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          echo "::notice::Checking PyPI for existing ${version}..."
           if curl -fsSL "https://pypi.org/pypi/omnidoc-pro/${version}/json" >/dev/null 2>&1; then
-            echo "::notice::omnidoc-pro ${version} already published on PyPI, skipping upload."
+            echo "::notice::omnidoc-pro ${version} already on PyPI, skipping upload."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
