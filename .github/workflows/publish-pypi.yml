@@ -4,13 +4,6 @@ on:
   push:
     tags:
       - "v*.*.*"
-  workflow_dispatch:
-    inputs:
-      testpypi:
-        description: "Upload to TestPyPI before PyPI"
-        required: false
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -43,30 +36,8 @@ jobs:
           name: dist
           path: dist/
 
-  publish-testpypi:
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' && github.event.inputs.testpypi == 'true'
-
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dist
-          path: dist
-
-      - name: Install twine
-        run: pip install --upgrade twine
-
-      - name: Upload to TestPyPI
-        run: |
-          twine upload --repository-url https://test.pypi.org/legacy/ \
-            -u "${{ secrets.PYPI_USERNAME }}" \
-            -p "${{ secrets.PYPI_TEST_TOKEN }}" \
-            dist/*
-
   publish-pypi:
-    needs: [build, publish-testpypi]
+    needs: build
     runs-on: ubuntu-latest
 
     steps:

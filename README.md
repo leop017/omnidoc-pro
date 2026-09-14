@@ -275,7 +275,6 @@ ruff check .
   触发：`push` 到 `v*.*.*` tag
   流程：build → `twine upload` 到正式 PyPI
   所需 secret：`PYPI_TOKEN`（`pypi-` 开头），可选 `PYPI_USERNAME`（默认 `__token__`）
-  支持手动 `workflow_dispatch` + `testpypi` 输入先传 TestPyPI 验证
 
 典型发布流程：
 
@@ -297,11 +296,8 @@ git push origin vX.Y.Z
 $env:GH_TOKEN="<GitHub OAuth token>"
 $env:PYPI_TOKEN="<PyPI API token>"
 
-# 发布到正式 PyPI（默认）
+# 发布到正式 PyPI
 python scripts/release.py all v0.2.0
-
-# 如已注册 TestPyPI，可用 --test 改传到 TestPyPI
-python scripts/release.py all v0.2.0 --test
 
 # 单独构建 PyInstaller exe（10-30 分钟）
 python scripts/release.py exe
