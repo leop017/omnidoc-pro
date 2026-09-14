@@ -39,6 +39,9 @@ jobs:
   publish-pypi:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Download artifacts
@@ -50,12 +53,41 @@ jobs:
       - name: Install twine
         run: pip install --upgrade twine
 
-      - name: Upload to PyPI
+      - name: Diagnostics
+        shell: bash
         run: |
-          twine upload --repository-url https://upload.pypi.org/legacy/ \
-            -u "${{ secrets.PYPI_USERNAME }}" \
-            -p "${{ secrets.PYPI_TOKEN }}" \
-            dist/*
+          echo "---- twine upload diagnostics ----"
+          echo "files: $(ls dist/ | tr '\n' ' ')"
+          echo "twine: $(twine --version)"
+          # Each ${{ secrets.X }} below is text-substituted by Actions into the script source:
+          # an undefined/empty secret becomes a literal empty string -> tests "no".
+          echo "PYPI_USERNAME set:    $([ -n "${{ secrets.PYPI_USERNAME }}" ] && echo yes || echo no)"
+          echo "PYPI_TOKEN set:       $([ -n "${{ secrets.PYPI_TOKEN }}" ] && echo yes || echo no)"
+          echo "PYPI_API_TOKEN set:   $([ -n "${{ secrets.PYPI_API_TOKEN }}" ] && echo yes || echo no)"
+
+      - name: Upload to PyPI (Trusted Publishing preferred, legacy fallback)
+        shell: bash
+        run: |
+          set -uo pipefail
+          API_TOKEN="${{ secrets.PYPI_API_TOKEN }}"
+          LEGACY_USER="${{ secrets.PYPI_USERNAME }}"
+          LEGACY_PASS="${{ secrets.PYPI_TOKEN }}"
+          if [ -n "$API_TOKEN" ]; then
+            echo "::notice::Using Trusted Publishing (PYPI_API_TOKEN + __token__)."
+            twine upload --repository-url https://upload.pypi.org/legacy/ \
+              --username __token__ \
+              --password "$API_TOKEN" \
+              dist/*
+          elif [ -n "$LEGACY_USER" ] && [ -n "$LEGACY_PASS" ]; then
+            echo "::notice::Using legacy PYPI_USERNAME + PYPI_TOKEN credentials."
+            twine upload --repository-url https://upload.pypi.org/legacy/ \
+              -u "$LEGACY_USER" \
+              -p "$LEGACY_PASS" \
+              dist/*
+          else
+            echo "::error::No PyPI credentials configured. Set PYPI_API_TOKEN (Trusted Publishing, recommended) OR both PYPI_USERNAME and PYPI_TOKEN in the repo secrets."
+            exit 1
+          fi
 
       - name: Verify upload succeeded
         shell: bash
