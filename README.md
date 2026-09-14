@@ -185,7 +185,16 @@ omnidoc-pro/
 │   └── ui/
 │       ├── webui.py         # Gradio WebUI（薄壳）
 │       └── cli.py           # Typer CLI（薄壳）
-├── tests/                    # 10 个测试文件
+├── tests/                    # 13 个测试文件
+├── RELEASE_NOTES/            # 每版本 release notes（X.Y.Z.md）
+│   ├── 0.1.0.md
+│   └── README.md             # 命名规则 + 索引
+├── .github/
+│   └── workflows/
+│       ├── release.yml       # tag push 自动 build + GitHub Release
+│       └── publish-pypi.yml  # tag push 自动 twine 上传 PyPI
+├── scripts/
+│   └── release.py            # 手动一键发布脚本（build→tag→release→pypi）
 ├── omnidoc.spec              # PyInstaller 打包配置（CLI）
 ├── omnidoc-web.spec          # PyInstaller 打包配置（WebUI）
 ├── pyproject.toml
@@ -251,7 +260,37 @@ ruff check .
 
 ## 📦 发布（Releases）
 
-项目根目录已附 `scripts/release.py`，一条命令完成 **build → tag → GitHub Release → PyPI**：
+项目提供了**两套**发布路径，可按需选择：
+
+### 方式一：GitHub Actions 自动发布（推荐）
+
+推送 `vX.Y.Z` tag 即自动触发，无需手动运行脚本：
+
+- [`.github/workflows/release.yml`](./.github/workflows/release.yml)
+  触发：`push` 到 `v*.*.*` tag
+  流程：build（wheel + sdist）→ 创建 GitHub Release → 自动附上 `RELEASE_NOTES/X.Y.Z.md` 作为 release notes
+  所需 secret：`GITHUB_TOKEN`（内置，无需配置）
+
+- [`.github/workflows/publish-pypi.yml`](./.github/workflows/publish-pypi.yml)
+  触发：`push` 到 `v*.*.*` tag
+  流程：build → `twine upload` 到正式 PyPI
+  所需 secret：`PYPI_TOKEN`（`pypi-` 开头），可选 `PYPI_USERNAME`（默认 `__token__`）
+  支持手动 `workflow_dispatch` + `testpypi` 输入先传 TestPyPI 验证
+
+典型发布流程：
+
+```bash
+# 1. bump pyproject.toml 的 version 字段
+# 2. 写 RELEASE_NOTES/x.y.z.md
+# 3. 打 tag 并推送（同时触发两个 workflow）
+git tag -a vX.Y.Z -m "Release vX.Y.Z"
+git push origin vX.Y.Z
+# 到 GitHub Actions 页面查看两个 workflow 的运行状态
+```
+
+### 方式二：手动脚本（本地发布）
+
+项目根目录附 `scripts/release.py`，一条命令完成 **build → tag → GitHub Release → PyPI**：
 
 ```powershell
 # 设置凭证
