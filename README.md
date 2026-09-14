@@ -232,6 +232,27 @@ pytest tests/ -v
 ruff check .
 ```
 
+## 📦 发布（Releases）
+
+项目根目录已附 `scripts/release.py`，一条命令完成 **build → tag → GitHub Release → PyPI**：
+
+```powershell
+# 设置凭证
+$env:GH_TOKEN="<GitHub OAuth token>"
+$env:PYPI_TOKEN="<PyPI API token>"
+
+# 发布到 TestPyPI（默认，安全）
+python scripts/release.py all v0.2.0
+
+# 发布到正式 PyPI（需先确认包名未被占用）
+python scripts/release.py all v0.2.0 --prod
+
+# 单独构建 PyInstaller exe（10-30 分钟）
+python scripts/release.py exe
+```
+
+子命令可拆开单独跑：`build` / `exe` / `tag` / `release` / `pypi` / `all`。
+
 ## 📊 版本
 
 当前版本：**0.1.0**（Alpha）
