@@ -4,6 +4,24 @@
 
 将 Word / Excel / PDF / PPT / 图片 / 音频 / HTML / CSV / 网页 等 20+ 格式统一转换为 RAG 友好的 Markdown 或分块（chunks），支持可选 LLM 图像描述增强，完全本地运行、无数据外泄。
 
+<p>
+  <img alt="PyPI 版本" src="https://img.shields.io/pypi/v/omnidoc-pro?label=PyPI&color=blueviolet">
+  <img alt="Python 版本" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blueviolet">
+  <img alt="许可" src="https://img.shields.io/badge/license-GPL%20v3%20%7C%20Commercial-rgb:4c1,1f6,1d4">
+  <img alt="状态" src="https://img.shields.io/badge/status-alpha-rgb:e79,fa4,3b7">
+</p>
+<p>
+  <img alt="GitHub Stars" src="https://img.shields.io/github/stars/leop017/omnidoc-pro?style=flat-square">
+  <img alt="GitHub Issues" src="https://img.shields.io/github/issues/leop017/omnidoc-pro?style=flat-square">
+  <img alt="GitHub Last Commit" src="https://img.shields.io/github/last-commit/leop017/omnidoc-pro?style=flat-square">
+  <img alt="GitHub 下载" src="https://img.shields.io/github/downloads/leop017/omnidoc-pro/total?style=flat-square">
+</p>
+<p>
+  <img alt="PyPI Downloads" src="https://img.shields.io/pypi/dm/omnidoc-pro">
+  <img alt="PyPI Python 版本" src="https://img.shields.io/pypi/pyversions/omnidoc-pro">
+  <img alt="PyPI License" src="https://img.shields.io/pypi/license/omnidoc-pro">
+</p>
+
 ## ✨ 核心特性
 
 | 特性 | 说明 |
