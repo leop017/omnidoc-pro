@@ -100,21 +100,7 @@ jobs:
         run: |
           version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           echo "::notice::Verifying omnidoc-pro ${version} on PyPI..."
-          status=$(OMNIDOC_VERSION="${version}" python - <<'PY'
-import os, urllib.request, urllib.error
-try:
-    req = urllib.request.Request(
-        "https://pypi.org/pypi/omnidoc-pro/%s/json" % os.environ["OMNIDOC_VERSION"],
-        headers={"User-Agent": "omnidoc-pro-ci"},
-    )
-    urllib.request.urlopen(req, timeout=30)
-    print("200")
-except urllib.error.HTTPError as e:
-    print(str(e.code))
-except Exception:
-    print("ERR")
-PY
-          )
+          status=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/omnidoc-pro/${version}/json")
           echo "::notice::PyPI HTTP status for ${version}: ${status}"
           if [ "$status" = "200" ]; then
             echo "::notice::omnidoc-pro ${version} confirmed on PyPI."
