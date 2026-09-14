@@ -50,42 +50,7 @@ jobs:
       - name: Install twine
         run: pip install --upgrade twine
 
-      - name: Check if version already published
-        id: skip
-        shell: bash
-        run: |
-          version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-          if [ -z "$version" ]; then
-            echo "::error::Could not extract version from pyproject.toml; refusing to skip so we always attempt upload."
-            exit 0
-          fi
-          echo "::notice::Extracted version: ${version}"
-          status=$(OMNIDOC_VERSION="${version}" python - <<'PY'
-import os, urllib.request, urllib.error
-try:
-    req = urllib.request.Request(
-        "https://pypi.org/pypi/omnidoc-pro/%s/json" % os.environ["OMNIDOC_VERSION"],
-        headers={"User-Agent": "omnidoc-pro-ci"},
-    )
-    urllib.request.urlopen(req, timeout=30)
-    print("200")
-except urllib.error.HTTPError as e:
-    print(str(e.code))
-except Exception:
-    print("ERR")
-PY
-          )
-          echo "::notice::PyPI HTTP status for ${version}: ${status}"
-          if [ "$status" = "200" ]; then
-            echo "::notice::omnidoc-pro ${version} already on PyPI, skipping upload."
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::omnidoc-pro ${version} not confirmed on PyPI (status ${status}), will upload."
-          fi
-          exit 0
-
       - name: Upload to PyPI
-        if: ${{ steps.skip.outputs.skip != 'true' }}
         run: |
           twine upload --repository-url https://upload.pypi.org/legacy/ \
             -u "${{ secrets.PYPI_USERNAME }}" \
@@ -93,7 +58,6 @@ PY
             dist/*
 
       - name: Verify upload succeeded
-        if: ${{ steps.skip.outputs.skip != 'true' }}
         shell: bash
         run: |
           version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
