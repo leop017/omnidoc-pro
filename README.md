@@ -6,7 +6,7 @@
 
 <p>
   <a href="https://pypi.org/project/omnidoc-pro/"><img alt="PyPI 版本" src="https://img.shields.io/pypi/v/omnidoc-pro?label=PyPI&color=blueviolet"></a>
-  <a href="https://pypi.org/project/omnidoc-pro/#python-compatibility"><img alt="Python 版本" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blueviolet"></a>
+  <img alt="Python 版本" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blueviolet">
   <a href="./LICENSE"><img alt="许可" src="https://img.shields.io/badge/license-GPL%20v3%20%7C%20Commercial-rgb:4c1,1f6,1d4"></a>
   <img alt="状态" src="https://img.shields.io/badge/status-alpha-rgb:e79,fa4,3b7">
 </p>
@@ -14,11 +14,6 @@
   <a href="https://github.com/leop017/omnidoc-pro/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/leop017/omnidoc-pro?style=flat-square"></a>
   <a href="https://github.com/leop017/omnidoc-pro/issues"><img alt="GitHub Issues" src="https://img.shields.io/github/issues/leop017/omnidoc-pro?style=flat-square"></a>
   <a href="https://github.com/leop017/omnidoc-pro/commits/main"><img alt="GitHub Last Commit" src="https://img.shields.io/github/last-commit/leop017/omnidoc-pro?style=flat-square"></a>
-  <a href="https://github.com/leop017/omnidoc-pro/releases"><img alt="GitHub 下载" src="https://img.shields.io/github/downloads/leop017/omnidoc-pro/total?style=flat-square"></a>
-</p>
-<p>
-  <a href="https://pypistats.org/package/omnidoc-pro"><img alt="PyPI 月下载" src="https://img.shields.io/pypi/dm/omnidoc-pro"></a>
-  <a href="https://pypi.org/project/omnidoc-pro/#python-compatibility"><img alt="PyPI 支持版本" src="https://img.shields.io/pypi/pyversions/omnidoc-pro"></a>
 </p>
 
 ## ✨ 核心特性
@@ -260,15 +255,11 @@ ruff check .
 
 ## 📦 发布（Releases）
 
-项目提供了**两套**发布路径，可按需选择：
-
-### 方式一：GitHub Actions 自动发布（推荐）
-
-推送 `vX.Y.Z` tag 即自动触发，无需手动运行脚本：
+推送 `vX.Y.Z` tag 即自动触发两套 GitHub Actions，无需手动运行任何脚本：
 
 - [`.github/workflows/release.yml`](./.github/workflows/release.yml)
   触发：`push` 到 `v*.*.*` tag
-  流程：build（wheel + sdist）→ 创建 GitHub Release → 自动附上 `RELEASE_NOTES/X.Y.Z.md` 作为 release notes
+  流程：build（wheel + sdist）→ 创建 GitHub Release（自动附上 `RELEASE_NOTES/X.Y.Z.md` 作为 release notes）
   所需 secret：`GITHUB_TOKEN`（内置，无需配置）
 
 - [`.github/workflows/publish-pypi.yml`](./.github/workflows/publish-pypi.yml)
@@ -287,23 +278,7 @@ git push origin vX.Y.Z
 # 到 GitHub Actions 页面查看两个 workflow 的运行状态
 ```
 
-### 方式二：手动脚本（本地发布）
-
-项目根目录附 `scripts/release.py`，一条命令完成 **build → tag → GitHub Release → PyPI**：
-
-```powershell
-# 设置凭证
-$env:GH_TOKEN="<GitHub OAuth token>"
-$env:PYPI_TOKEN="<PyPI API token>"
-
-# 发布到正式 PyPI
-python scripts/release.py all v0.2.0
-
-# 单独构建 PyInstaller exe（10-30 分钟）
-python scripts/release.py exe
-```
-
-子命令可拆开单独跑：`build` / `exe` / `tag` / `release` / `pypi` / `all`。
+> 仅维护者：本地可借助 `scripts/release.py` 一键完成 build / tag / 手动 PyPI 上传，详见该脚本头部说明。
 
 ## 📊 版本
 
