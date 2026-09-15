@@ -71,27 +71,42 @@ jobs:
           echo "PYPI_TOKEN set:       $([ -n "${{ secrets.PYPI_TOKEN }}" ] && echo yes || echo no)"
           echo "PYPI_API_TOKEN set:   $([ -n "${{ secrets.PYPI_API_TOKEN }}" ] && echo yes || echo no)"
 
-      - name: Upload to PyPI (Trusted Publishing preferred, legacy fallback)
+      - name: Upload to PyPI (legacy auth preferred, Trusted Publishing fallback)
         shell: bash
         run: |
           set -uo pipefail
           API_TOKEN="${{ secrets.PYPI_API_TOKEN }}"
           LEGACY_USER="${{ secrets.PYPI_USERNAME }}"
           LEGACY_PASS="${{ secrets.PYPI_TOKEN }}"
-          if [ -n "$API_TOKEN" ]; then
-            echo "::notice::Using Trusted Publishing (PYPI_API_TOKEN + __token__)."
-            twine upload --repository-url https://upload.pypi.org/legacy/ \
-              --username __token__ \
-              --password "$API_TOKEN" \
-              dist/*
-          elif [ -n "$LEGACY_USER" ] && [ -n "$LEGACY_PASS" ]; then
-            echo "::notice::Using legacy PYPI_USERNAME + PYPI_TOKEN credentials."
+          if [ -n "$LEGACY_USER" ] && [ -n "$LEGACY_PASS" ]; then
+            echo "Using legacy PYPI_USERNAME + PYPI_TOKEN credentials."
             twine upload --repository-url https://upload.pypi.org/legacy/ \
               -u "$LEGACY_USER" \
               -p "$LEGACY_PASS" \
-              dist/*
+              dist/* 2>&1 | tee /tmp/twine_upload.log
+            exit_code=${PIPESTATUS[0]}
+            if [ "$exit_code" -ne 0 ]; then
+              echo "ERROR: twine upload failed (exit ${exit_code}). Output:"
+              cat /tmp/twine_upload.log
+              exit "$exit_code"
+            fi
+            echo "Upload completed successfully."
+          elif [ -n "$API_TOKEN" ]; then
+            echo "Using Trusted Publishing (PYPI_API_TOKEN + __token__)."
+            twine upload --repository-url https://upload.pypi.org/legacy/ \
+              --username __token__ \
+              --password "$API_TOKEN" \
+              dist/* 2>&1 | tee /tmp/twine_upload.log
+            exit_code=${PIPESTATUS[0]}
+            if [ "$exit_code" -ne 0 ]; then
+              echo "ERROR: twine upload failed (exit ${exit_code}). Output:"
+              cat /tmp/twine_upload.log
+              exit "$exit_code"
+            fi
+            echo "Upload completed successfully."
           else
-            echo "::error::No PyPI credentials configured. Set PYPI_API_TOKEN (Trusted Publishing, recommended) OR both PYPI_USERNAME and PYPI_TOKEN in the repo secrets."
+            echo "ERROR: No PyPI credentials configured."
+            echo "Set PYPI_USERNAME + PYPI_TOKEN (legacy) OR PYPI_API_TOKEN (Trusted Publishing) in repo secrets."
             exit 1
           fi
 
