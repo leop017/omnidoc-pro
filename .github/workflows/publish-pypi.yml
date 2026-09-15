@@ -98,7 +98,12 @@ jobs:
       - name: Verify upload succeeded
         shell: bash
         run: |
-          version=$(grep -E '^version\s*=' pyproject.toml | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          whl=$(ls dist/*.whl 2>/dev/null | head -n 1)
+          if [[ -z "$whl" ]]; then
+            echo "::warning::No wheel found in dist/, cannot verify upload."
+            exit 0
+          fi
+          version=$(basename "$whl" | sed -E 's/^omnidoc_pro-//; s/-py3.*$//')
           echo "::notice::Verifying omnidoc-pro ${version} on PyPI..."
           status=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/omnidoc-pro/${version}/json")
           echo "::notice::PyPI HTTP status for ${version}: ${status}"
