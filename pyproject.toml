@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnidoc-pro"
-version = "0.1.1"
+version = "0.1.2"
 description = "OmniDoc Pro: one-stop local document pre-processing workbench for RAG — deep Word/Excel parsing + MarkItDown breadth + LLM enrichment, fully UI-decoupled."
 readme = "README.md"
 readme-type = "text/markdown"

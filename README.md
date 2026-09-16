@@ -298,9 +298,10 @@ git push origin vX.Y.Z
 
 ## 📊 版本
 
-当前版本：**0.1.1**（Alpha）
+当前版本：**0.1.2**（Alpha）
 
 - 变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
+  - [v0.1.2](./RELEASE_NOTES/0.1.2.md) — 发布流程完善 + 文档维护
   - [v0.1.1](./RELEASE_NOTES/0.1.1.md) — 修复 + CI 自动化
   - [v0.1.0](./RELEASE_NOTES/0.1.0.md) — 首次公开发布
 
