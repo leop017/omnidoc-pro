@@ -60,25 +60,6 @@ jobs:
         run: pip install --upgrade twine
 
       - name: Upload to PyPI
-        shell: bash
-        run: |
-          set -uo pipefail
-          API_TOKEN="${{ secrets.PYPI_API_TOKEN }}"
-          LEGACY_USER="${{ secrets.PYPI_USERNAME }}"
-          LEGACY_PASS="${{ secrets.PYPI_TOKEN }}"
-          if [ -n "$LEGACY_USER" ] && [ -n "$LEGACY_PASS" ]; then
-            echo "::notice::Using PYPI_USERNAME + PYPI_TOKEN (legacy auth)."
-            twine upload --repository-url https://upload.pypi.org/legacy/ \
-              -u "$LEGACY_USER" \
-              -p "$LEGACY_PASS" \
-              dist/*.whl dist/*.tar.gz
-          elif [ -n "$API_TOKEN" ]; then
-            echo "::notice::Using PYPI_API_TOKEN (Trusted Publishing)."
-            twine upload --repository-url https://upload.pypi.org/legacy/ \
-              --username __token__ \
-              --password "$API_TOKEN" \
-              dist/*.whl dist/*.tar.gz
-          else
-            echo "::error::No PyPI credentials found. Set PYPI_USERNAME + PYPI_TOKEN or PYPI_API_TOKEN in repo secrets."
-            exit 1
-          fi
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        run: twine upload --username __token__ --password "$PYPI_TOKEN" dist/*
