@@ -255,10 +255,12 @@ ruff check .
 
 ## 📦 发布（Releases）
 
+### 自动发布（推荐）
+
 推送 `vX.Y.Z` tag 即自动触发两套 GitHub Actions，无需手动运行任何脚本：
 
 - [`.github/workflows/release.yml`](./.github/workflows/release.yml)
-  触发：`push` 到 `v*.*.*` tag
+  触发：`push` 到 `v*.*.*` tag（也可在 Actions 页面手动 **Run workflow**，指定 tag）
   流程：
   - Linux（`build`）：构建 sdist + wheel
   - Windows（`build-exe`）：用 PyInstaller 打包 `omnidoc.exe`（CLI）与 `omnidoc-web.exe`（WebUI）
@@ -266,20 +268,31 @@ ruff check .
   所需 secret：`GITHUB_TOKEN`（内置，无需配置）
 
 - [`.github/workflows/publish-pypi.yml`](./.github/workflows/publish-pypi.yml)
-  触发：`push` 到 `v*.*.*` tag
+  触发：`push` 到 `v*.*.*` tag（也可在 Actions 页面手动 **Run workflow**，指定 tag）
   流程：build → `twine upload` 到正式 PyPI
-  所需 secret：`PYPI_TOKEN`（`pypi-` 开头），可选 `PYPI_USERNAME`（默认 `__token__`）
+  所需 secret：`PYPI_API_TOKEN`（以 `pypi-` 开头的 API token，单一 token，用户名固定为 `__token__`）
+
+> **手动 Run workflow 说明**：两个 workflow 都支持在 GitHub Actions 页面点 **Run workflow**，输入参数 `ref` 要填一个**已存在的 tag**（如 `v0.1.1`），workflow 会 checkout 该 tag 并构建上传。
 
 典型发布流程：
 
 ```bash
-# 1. bump pyproject.toml 的 version 字段
+# 1. bump pyproject.toml 与 omnidoc/__init__.py 的 version 字段（两者保持一致）
 # 2. 写 RELEASE_NOTES/x.y.z.md
 # 3. 打 tag 并推送（同时触发两个 workflow）
 git tag -a vX.Y.Z -m "Release vX.Y.Z"
 git push origin vX.Y.Z
 # 到 GitHub Actions 页面查看两个 workflow 的运行状态
 ```
+
+### 无 Python 环境？直接下 exe
+
+不想装 Python？从 [GitHub Releases](https://github.com/leop017/omnidoc-pro/releases) 下载独立可执行文件：
+
+- `omnidoc.exe` — 命令行版（双击或拖文件转换）
+- `omnidoc-web.exe` — WebUI 版（自动开浏览器，等价于 `omnidoc webui`）
+
+这两个 exe 由 PyInstaller 打包，已内置 Python 运行时与全部依赖，解压即用、无需 Python 环境。
 
 > 仅维护者：本地可借助 `scripts/release.py` 一键完成 build / tag / 手动 PyPI 上传，详见该脚本头部说明。
 
