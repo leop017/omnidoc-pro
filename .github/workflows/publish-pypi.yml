@@ -62,6 +62,4 @@ jobs:
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          echo "PYPI_API_TOKEN length: ${#PYPI_API_TOKEN}"
-          echo "PYPI_API_TOKEN prefix: ${PYPI_API_TOKEN:0:8}..."
           twine upload --username __token__ --password "$PYPI_API_TOKEN" dist/*
