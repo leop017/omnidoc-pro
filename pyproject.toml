@@ -6,6 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "omnidoc-pro"
 version = "0.1.1"
 description = "OmniDoc Pro: one-stop local document pre-processing workbench for RAG — deep Word/Excel parsing + MarkItDown breadth + LLM enrichment, fully UI-decoupled."
+readme = "README.md"
+readme-type = "text/markdown"
 requires-python = ">=3.10"
 license = "GPL-3.0-or-later"
 keywords = ["document", "conversion", "rag", "markdown", "excel", "word", "markitdown", "llm"]
