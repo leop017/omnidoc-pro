@@ -47,7 +47,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - name: Download artifacts
@@ -62,19 +61,7 @@ jobs:
       - name: Upload to PyPI
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
-          PYPI_USERNAME: ${{ secrets.PYPI_USERNAME }}
-          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
-          echo "PYPI_API_TOKEN set: $([ -n "$PYPI_API_TOKEN" ] && echo yes || echo no)"
           echo "PYPI_API_TOKEN length: ${#PYPI_API_TOKEN}"
           echo "PYPI_API_TOKEN prefix: ${PYPI_API_TOKEN:0:8}..."
-          echo "PYPI_USERNAME set: $([ -n "$PYPI_USERNAME" ] && echo yes || echo no)"
-          echo "PYPI_TOKEN set: $([ -n "$PYPI_TOKEN" ] && echo yes || echo no)"
-          if [ -n "$PYPI_API_TOKEN" ]; then
-            twine upload --username __token__ --password "$PYPI_API_TOKEN" dist/*
-          elif [ -n "$PYPI_USERNAME" ] && [ -n "$PYPI_TOKEN" ]; then
-            twine upload --username "$PYPI_USERNAME" --password "$PYPI_TOKEN" dist/*
-          else
-            echo "::error::No PyPI credentials found"
-            exit 1
-          fi
+          twine upload --username __token__ --password "$PYPI_API_TOKEN" dist/*
