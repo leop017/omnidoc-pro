@@ -54,7 +54,7 @@ cli = ["typer>=0.9.0"]
 # bundles antiword/catdoc/soffice system binaries, so it stays opt-in).
 legacy-doc = ["textract"]
 # Testing tooling.
-test = ["pytest>=7.0.0", "pytest-mock>=3.10.0", "coverage>=7.0.0"]
+test = ["pytest>=7.0.0", "pytest-mock>=3.10.0", "coverage>=7.0.0", "ruff>=0.4.0"]
 # Everything for a full-featured local install.
 full = [
     "omnidoc-pro[markitdown,gui,llm,cli,test]",
