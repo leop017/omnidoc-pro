@@ -15,7 +15,33 @@ permissions:
   contents: read
 
 jobs:
+  # 发布门禁：ruff + pytest 全量测试，不通过则阻断 PyPI 构建与上传
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: pip install -e ".[full,test]"
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Test (pytest)
+        run: python -m pytest tests/ -v --tb=short
+
   build:
+    needs: test
     runs-on: ubuntu-latest
 
     steps:

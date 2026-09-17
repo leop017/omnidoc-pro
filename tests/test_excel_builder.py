@@ -13,14 +13,13 @@ Covers the pure-data methods that don't require a real file:
   - load_sheets / build (mock pd.read_excel)
 """
 
-from unittest import mock
 
 import pandas as pd
 
 from omnidoc.engines.deep._excel import (
     ExcelBuilder,
-    _XlsMergeRange,
     _generate_json_data,
+    _XlsMergeRange,
 )
 from omnidoc.engines.deep._models import MergeInfo
 
@@ -253,7 +252,7 @@ class TestGenerateMdStandard:
         assert "A" in md
         assert "C" in md
         # No blank header row (the first row IS the header)
-        lines = [l for l in md.splitlines() if l.strip()]
+        lines = [line for line in md.splitlines() if line.strip()]
         assert len(lines) >= 2  # at least header + separator + data
 
     def test_blank_header_cell_rendered_as_nbsp(self):
@@ -277,7 +276,7 @@ class TestGenerateMdStandard:
         rows = [["H1", "H2", "H3"], ["A"]]  # data row shorter than max_cols
         md = b._generate_md_standard(rows, 3)
         # Should still render 3 columns; missing cells are &nbsp;
-        lines = [l for l in md.splitlines() if l.strip()]
+        lines = [line for line in md.splitlines() if line.strip()]
         # header, separator, data → at least 3 lines
         assert len(lines) >= 3
 
@@ -462,5 +461,6 @@ class TestEnhancedMdPath:
 
 if __name__ == "__main__":
     import sys
+
     import pytest
     sys.exit(pytest.main([__file__, "-v"]))

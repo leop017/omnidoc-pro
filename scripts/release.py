@@ -91,10 +91,10 @@ def cmd_build(_args: argparse.Namespace) -> None:
 def cmd_exe(args: argparse.Namespace) -> None:
     """用 PyInstaller 构建 exe（很慢，仅当需要附 exe 时跑）。"""
     if not args.skip_cli and SPEC_CLI.exists():
-        print(f"[exe] 构建 CLI …")
+        print("[exe] 构建 CLI …")
         sh([sys.executable, "-m", "PyInstaller", str(SPEC_CLI), "--clean", "--noconfirm"])
     if not args.skip_web and SPEC_WEB.exists():
-        print(f"[exe] 构建 WebUI …")
+        print("[exe] 构建 WebUI …")
         sh([sys.executable, "-m", "PyInstaller", str(SPEC_WEB), "--clean", "--noconfirm"])
 
 
@@ -158,7 +158,7 @@ def cmd_pypi(args: argparse.Namespace) -> None:
     args_ = [sys.executable, "-m", "twine", "upload",
              "-u", username, "-p", token,
              "--repository-url", url] + [str(f) for f in files]
-    print(f"[pypi] 目标: 正式 PyPI")
+    print("[pypi] 目标: 正式 PyPI")
     sh(args_)
     print(f"[pypi] 上传完成: {[f.name for f in files]}")
 
@@ -201,7 +201,7 @@ def main() -> int:
     pr = sub.add_parser("release", help="创建 GitHub Release")
     pr.add_argument("tag")
 
-    pp = sub.add_parser("pypi", help="上传到正式 PyPI")
+    sub.add_parser("pypi", help="上传到正式 PyPI")
 
     pa = sub.add_parser("all", help="build + tag + release + pypi 一条龙")
     pa.add_argument("tag")

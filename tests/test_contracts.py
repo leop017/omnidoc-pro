@@ -21,7 +21,10 @@ def test_config_defaults_flatten():
     assert kwargs["output_fmt"] == "md"
     assert kwargs["cleaning_rules"]["remove_page_numbers"] is True
     assert kwargs["llm"]["max_concurrency"] == 3
-    assert kwargs["excel_read_only"] is True
+    # 死配置已移除：to_engine_kwargs 不再导出未消费字段
+    assert "excel_read_only" not in kwargs
+    assert "pdf_page_size" not in kwargs
+    assert "max_rows" not in kwargs
 
 
 def test_llm_usable_requires_all_parts():

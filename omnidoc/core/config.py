@@ -1,9 +1,9 @@
 """Unified, Pydantic-backed configuration for OmniDoc Pro.
 
 One config object drives the whole pipeline: routing (which engine wins),
-output format, streaming / anti-OOM limits, the cleaning / chunking /
-enrichment stages, and LLM settings. UI layers build a config and hand it to
-the controller — they never reach into an engine directly.
+output format, the cleaning / chunking / enrichment stages, and LLM
+settings. UI layers build a config and hand it to the controller — they
+never reach into an engine directly.
 """
 
 from __future__ import annotations
@@ -75,12 +75,6 @@ class OmniDocConfig(BaseModel):
     deep_first: bool = True          # prefer Deep Engine for Word/Excel
     allow_fallback: bool = True      # Deep -> MarkItDown fallback on failure
 
-    # ── anti-OOM / streaming rules ────────────────────────────
-    excel_read_only: bool = True     # openpyxl read_only + per-sheet streaming
-    pdf_page_size: int = 0           # 0 = process all pages one-by-one
-    large_file_size: int = 20 * 1024 * 1024
-    max_rows: int = 0                # 0 = no cap
-
     # ── features ──────────────────────────────────────────────
     offline_mode: bool = False       # skip LLM enrichment, still emit markdown
     llm: LlmSettings = Field(default_factory=LlmSettings)
@@ -96,9 +90,6 @@ class OmniDocConfig(BaseModel):
             "output_fmt": self.output_fmt,
             "enhanced_md": self.enhanced_md,
             "output_dir": self.output_dir,
-            "max_rows": self.max_rows,
-            "excel_read_only": self.excel_read_only,
-            "pdf_page_size": self.pdf_page_size,
             "offline_mode": self.offline_mode,
             "deep_first": self.deep_first,
             "allow_fallback": self.allow_fallback,

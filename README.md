@@ -62,7 +62,7 @@
 1. **广度 + 深度路由**：Word/Excel 走深度引擎（结构化解析），其他格式走广度引擎（MarkItDown）
 2. **UI 零侵入**：`core` / `engines` / `processors` 包绝不导入任何 UI 库
 3. **优雅降级**：引擎失败 → 自动降级；LLM 不可用 → 跳过增强记 warning；单文件失败不中断批次
-4. **并发限流**：LLM 图像描述用 `asyncio.Semaphore` 控制并发数，Excel 支持流式读取防 OOM
+4. **并发限流**：LLM 图像描述用 `asyncio.Semaphore` 控制并发数
 
 ## 🚀 快速开始
 
