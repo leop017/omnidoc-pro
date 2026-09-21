@@ -117,6 +117,28 @@ class TestBatchIntegration:
         assert results[1].success is False or results[1].errors
 
 
+class TestDeepAllSheetsFail:
+
+    def test_all_sheets_failure_reports_error_status(self, tmp_path: Path):
+        # A corrupt .xlsx makes load_sheets raise per-sheet, so build() returns
+        # {"sheets": [], "errors": [...]}. DeepEngine must surface ERROR status,
+        # not the default OK, on that branch.
+        from omnidoc.engines.deep_engine import DeepEngine
+        from omnidoc.core.document import ConversionStatus
+
+        bad = tmp_path / "corrupt.xlsx"
+        bad.write_bytes(b"garbage-not-a-zip")
+        eng = DeepEngine()
+        res = eng._result_multi(
+            {"sheets": [], "errors": [("Sales", "Invalid file: boom")],
+             "stem": "corrupt", "source_name": "corrupt.xlsx", "metadata": {"sheet_count": 0}},
+            "md", str(bad), {}, None,
+        )
+        assert res.status == ConversionStatus.ERROR
+        assert not res.success
+        assert any("Sales" in e for e in res.errors)
+
+
 class TestDegradation:
 
     def test_nonexistent_source_degrades_to_error_result(self, tmp_path: Path):

@@ -80,6 +80,11 @@ class ProcessingPipeline:
         try:
             chunker: ChunkerInterface = self.chunker_factory(strategy)
             result.chunks = chunker.chunk(result.document, dict(chunking))
+            if not result.chunks and (result.document.text or "").strip():
+                result.add_warning(
+                    f"chunking stage ({strategy}) produced 0 chunks for a non-empty document; "
+                    f"the chosen strategy may not apply to this input"
+                )
         except Exception as e:  # noqa: BLE001
             result.add_warning(f"chunking stage ({strategy}) failed: {e}")
 

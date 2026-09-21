@@ -167,6 +167,22 @@ class TestMarkdownChunker(unittest.TestCase):
         self.assertGreater(len(chunks), 1)
         self.assertTrue(any("part" in c.metadata for c in chunks))
 
+    def test_fallback_parses_text_when_elements_empty(self):
+        # Engines populate document.text but never document.elements; the
+        # header-aware strategy must degrade to parsing headings from text
+        # instead of silently returning no chunks.
+        md = "# 章节A\n\n正文一\n\n## 章节B\n\n正文二\n"
+        doc = Document(text=md)  # no elements
+        chunks = MarkdownChunker().chunk(doc, {})
+        self.assertGreaterEqual(len(chunks), 2)
+        headers = [c.metadata["header"] for c in chunks if "header" in c.metadata]
+        self.assertIn("章节A", headers)
+        self.assertIn("章节B", headers)
+
+    def test_fallback_empty_text_still_empty(self):
+        doc = Document(text="   ")  # no elements, no real text
+        self.assertEqual(MarkdownChunker().chunk(doc, {}), [])
+
 
 if __name__ == "__main__":
     unittest.main()

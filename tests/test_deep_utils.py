@@ -127,14 +127,12 @@ class TestCleanFilename(unittest.TestCase):
         self.assertTrue(clean_filename("Con").startswith("_"))
         self.assertTrue(clean_filename("lpt1").startswith("_"))
 
-    def test_long_cjk_name_uses_replace_not_ignore(self):
-        # Byte-level truncation must use errors='replace' (not 'ignore')
-        # so a truncated multibyte tail becomes a single U+FFFD instead
-        # of being silently dropped, which would garble the filename.
+    def test_long_cjk_name_char_truncated(self):
+        # Character-level truncation: 200 CJK chars → 180 whole chars
+        # (no U+FFFD, no silent drop).
         long_cjk = "中" * 200
         result = clean_filename(long_cjk)
-        # 180 bytes / 3 bytes-per-char = 60 whole CJK chars
-        self.assertEqual(len(result), 60)
+        self.assertEqual(len(result), 180)
         for ch in result:
             self.assertNotEqual(ch, "\ufffd")
 

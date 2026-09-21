@@ -8,11 +8,36 @@ because the upstream Markdown files are already split by ``## Section`` /
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
-from omnidoc.core.document import Chunk, Element
+from omnidoc.core.document import Chunk, Document, Element
 from omnidoc.core.interfaces import ChunkerInterface
 from omnidoc.processors.chunkers.base import coerce_to_document, make_chunk
+
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*?)\s*$", re.MULTILINE)
+
+
+def _heading_elements_from_text(text: str) -> list[Element]:
+    """Derive a heading/paragraph :class:`Element` sequence from Markdown text.
+
+    Used only when the upstream engine populated ``document.text`` but left
+    ``document.elements`` empty (which is the current state of every engine),
+    so the header-aware strategy degrades to text parsing instead of silently
+    yielding zero chunks.
+    """
+    elements: list[Element] = []
+    last = 0
+    for m in _HEADING_RE.finditer(text):
+        start = m.start()
+        if start > last and text[last:start].strip():
+            # Keep the raw slice so `_render` output stays locatable in text.
+            elements.append(Element("paragraph", text[last:start].strip()))
+        elements.append(Element("heading", m.group(2)))
+        last = m.end()
+    if last < len(text) and text[last:].strip():
+        elements.append(Element("paragraph", text[last:].strip()))
+    return elements
 
 
 class MarkdownChunker(ChunkerInterface):
@@ -28,6 +53,15 @@ class MarkdownChunker(ChunkerInterface):
         config = config or {}
         max_chunk_size = int(config.get("max_chunk_size", 0)) or None
         doc = coerce_to_document(content)
+        if not doc.elements:
+            # No engine currently populates ``elements``; degrade to parsing the
+            # heading/paragraph structure out of the plain Markdown text so the
+            # header-aware strategy still produces chunks instead of silently
+            # returning an empty list.
+            if not doc.text.strip():
+                return []
+            doc = Document(text=doc.text, metadata=doc.metadata,
+                           elements=_heading_elements_from_text(doc.text))
         if not doc.elements:
             return []
 

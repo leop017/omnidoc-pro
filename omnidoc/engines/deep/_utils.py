@@ -64,7 +64,7 @@ def clean_filename(name: str) -> str:
     if stem in INVALID_NAMES:
         name = f"_{name}"
     if len(name) > 180:
-        name = name.encode('utf-8')[:180].decode('utf-8', errors='replace')
+        name = name[:180].rstrip() or "untitled"
     return name
 
 

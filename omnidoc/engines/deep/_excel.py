@@ -167,18 +167,20 @@ class ExcelBuilder:
     @staticmethod
     def _remap_merged_rows(merged_ranges: list, df: pd.DataFrame) -> list:
         # With header=None, DataFrame index i = workbook row i+1 (identity).
-        # After dropna, some rows are removed; the surviving rows shift up.
-        # Build workbook-row → rendered-row map: workbook row (i+1) →
-        # rendered position (2 + i) when row 1 is the header-like first row,
-        # or simply (i+1) for all rows including the first.
-        # In this codebase the first rendered row (index 0 in rows_data) is
-        # treated as the header row (tag="th"), so rendered position of
-        # DataFrame index i is (i + 1).
-        wb_to_rendered = {orig_idx + 1: orig_idx + 1 for orig_idx in df.index}
+        # After dropna(how="all"), df.index may be non-contiguous (e.g.
+        # [0,1,2,4,5] if row 3 was all-NaN). The surviving rendered rows
+        # re-number sequentially as 1..N. Build a workbook-row → rendered-row
+        # map: rendered position of workbook row (index i + 1) is its rank+1
+        # in the surviving index list.
+        survivors_wb = [idx + 1 for idx in df.index]   # 1-based workbook rows
+        wb_to_rendered = {wb_row: rank + 1 for rank, wb_row in enumerate(survivors_wb)}
         remapped: list = []
         for merged in merged_ranges:
             min_col, min_row, max_col, max_row = merged.bounds
-            if min_row not in wb_to_rendered or max_row not in wb_to_rendered:
+            # A merge survives only if every workbook row it spans was kept
+            # by dropna. (A merge spanning a dropped all-NaN row has no data
+            # to render.)
+            if any(r not in wb_to_rendered for r in range(min_row, max_row + 1)):
                 continue
             remapped.append(
                 _XlsMergeRange(
@@ -347,11 +349,17 @@ class ExcelBuilder:
                     for r in range(1, cell_info.rowspan):
                         for c in range(cell_info.colspan):
                             header_covered[(1 + r, col_pos + c)] = True
-                    span = (
-                        f' colspan="{cell_info.colspan}"'
-                        f' data-colspan="{cell_info.colspan}"'
-                        if cell_info.colspan > 1 else ""
-                    )
+                    span = ""
+                    if cell_info.colspan > 1:
+                        span += (
+                            f' colspan="{cell_info.colspan}"'
+                            f' data-colspan="{cell_info.colspan}"'
+                        )
+                    if cell_info.rowspan > 1:
+                        span += (
+                            f' rowspan="{cell_info.rowspan}"'
+                            f' data-rowspan="{cell_info.rowspan}"'
+                        )
                     cell_value = html_mod.escape(str(h)) if h is not None and str(h).strip() != "" else "&nbsp;"
                     header_cells.append(f'<th scope="col" data-row="1" data-col="{col_pos}"{span}>{cell_value}</th>')
                 else:

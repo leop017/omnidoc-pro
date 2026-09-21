@@ -83,7 +83,10 @@ def test_llm_connection(llm: dict[str, Any]) -> str:
             f"\n响应: {choice.message.content.strip()[:80]}" if choice else ""
         )
     except Exception as e:  # noqa: BLE001 - probe never raises
-        return f"❌ 连接失败 · {type(e).__name__}: {e}"
+        msg = f"{type(e).__name__}: {e}"
+        if api_key and api_key in msg:
+            msg = msg.replace(api_key, "****")
+        return f"❌ 连接失败 · {msg}"
 
 
 # ── bounded image description (System Rule #4) ─────────────────

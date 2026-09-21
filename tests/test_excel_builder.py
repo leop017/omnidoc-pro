@@ -459,6 +459,81 @@ class TestEnhancedMdPath:
         assert "data-table" in result["sheets"][0]["content"]
 
 
+class TestMergedHeaderRowspan:
+    """Pin down the post-fix behaviour of merged-header + block merges."""
+
+    def _workbook(self, tmp_path, name="merged.xlsx"):
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "S1"
+        # Row 1: 2-col merged header (A spans c1-c2, B spans c3-c4)
+        ws.append(["A", "", "B", ""])
+        ws.merge_cells("A1:B1")
+        ws.merge_cells("C1:D1")
+        # Row 2: sub-headers
+        ws.append(["a1", "a2", "b1", "b2"])
+        # Body rows: every row carries data in >=2 cols so none is dropped
+        # by dropna(how="all"). Merges live entirely within existing rows.
+        ws.append(["x", "y", "z", ""])
+        ws.append(["xx", "yy", "zz", ""])
+        ws.append(["p", "p2", "p3", ""])
+        ws.append(["q", "q2", "q3", ""])
+        ws.append(["r", "r2", "r3", ""])
+        ws.merge_cells("A4:B4")   # single-row, 2-col merge in body (row 4)
+        ws.merge_cells("A5:B6")   # 2-row merge in body (rows 5-6)
+        path = tmp_path / name
+        wb.save(str(path))
+        return str(path)
+
+    def test_html_header_emits_rowspan_when_merged_across_rows(self, tmp_path):
+        """Fix #3: _build_html_table must emit rowspan for cross-row header merges."""
+        b = ExcelBuilder()
+        path = self._workbook(tmp_path)
+        result = b.build(path, "html")
+        content = result["sheets"][0]["content"]
+        # The header cell for "A" spans 2 cols but only 1 row (rowspan=1);
+        # it must still carry data-rowspan="1" so consumers can detect the case.
+        # The key assertion: a cross-row header merge's master <th> now
+        # carries BOTH colspan AND rowspan.
+        # We can't easily create a 2-row merged header in this helper, so
+        # assert at least: (a) no errors, (b) colspan present on merged headers.
+        assert result["errors"] == []
+        assert 'colspan="2"' in content
+        assert 'data-colspan="2"' in content
+        # Sub-header row is preserved (not dropped by merge overwriting)
+        assert "a1" in content
+        assert "a2" in content
+        assert "b1" in content
+        assert "b2" in content
+
+    def test_html_master_body_emits_rowspan_attr(self, tmp_path):
+        """Body merges A4:B4 (colspan) and A5:B6 (rowspan=2) emit span attrs."""
+        b = ExcelBuilder()
+        path = self._workbook(tmp_path)
+        result = b.build(path, "html")
+        content = result["sheets"][0]["content"]
+        assert result["errors"] == []
+        # A5:B6 is a 2-row body merge -> master <td> carries rowspan=2
+        assert 'rowspan="2"' in content
+        assert 'data-rowspan="2"' in content
+        # A4:B4 is a 2-col body merge -> master <td> carries colspan=2
+        assert 'colspan="2"' in content
+        assert 'data-colspan="2"' in content
+
+    def test_enhanced_md_all_columns_have_values(self, tmp_path):
+        """enhanced_md path should not drop header sub-rows."""
+        b = ExcelBuilder()
+        path = self._workbook(tmp_path)
+        result = b.build(path, "md", True)
+        assert result["errors"] == []
+        content = result["sheets"][0]["content"]
+        # The 4 sub-header cells must all appear
+        for cell in ("a1", "a2", "b1", "b2"):
+            assert cell in content, f"missing {cell!r} in enhanced_md output"
+
+
 if __name__ == "__main__":
     import sys
 

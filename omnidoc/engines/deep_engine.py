@@ -14,7 +14,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from omnidoc.core.document import Document, DocumentResult
+from omnidoc.core.document import ConversionStatus, Document, DocumentResult
 from omnidoc.core.interfaces import EngineInterface
 
 _SUPPORTED = {".docx", ".xls", ".xlsx", ".doc"}
@@ -100,7 +100,10 @@ class DeepEngine(EngineInterface):
             else:
                 raise ValueError(f"Deep Engine 不支持该格式： {ext}")
         except Exception as e:  # noqa: BLE001 - pipeline catches and degrades
-            result = DocumentResult(source=source, source_format=ext.lstrip("."), engine=self.name)
+            result = DocumentResult(
+                source=source, source_format=ext.lstrip("."), engine=self.name,
+                status=ConversionStatus.ERROR,
+            )
             result.add_error(str(e))
             return result
 
@@ -154,7 +157,8 @@ class DeepEngine(EngineInterface):
         output_dir: Optional[str],
     ) -> DocumentResult:
         if not built["sheets"]:
-            result = DocumentResult(source=source, source_format=_ext(source).lstrip("."), engine=self.name)
+            result = DocumentResult(source=source, source_format=_ext(source).lstrip("."), engine=self.name,
+                                    status=ConversionStatus.ERROR)
             for sn, err in built["errors"]:
                 result.add_error(f"{sn}: {err}")
             return result
