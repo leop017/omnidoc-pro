@@ -1,0 +1,86 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "omnidoc-pro"
+version = "0.1.3"
+description = "OmniDoc Pro: one-stop local document pre-processing workbench for RAG — deep Word/Excel parsing + MarkItDown breadth + LLM enrichment, fully UI-decoupled."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+keywords = ["document", "conversion", "rag", "markdown", "excel", "word", "markitdown", "llm"]
+authors = [
+    { name = "OmniDoc Pro Contributors" },
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Text Processing :: Markup :: HTML",
+]
+
+# ── Core (lightweight): the Deep Engine for Word/Excel + unified contracts ──
+# MarkItDown / Gradio / OpenAI are deliberately kept OUT of the core install
+# and exposed as optional dependency groups (see [project.optional-dependencies])
+# so that `pip install omnidoc-pro` stays lean.
+dependencies = [
+    "pydantic>=2.0.0",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.0",
+    "pandas>=2.0.0",
+    "mammoth>=1.6.0",
+    "beautifulsoup4>=4.12.0",
+    "markdownify>=0.11.0",
+    "xlrd>=2.0.0",
+]
+
+[project.optional-dependencies]
+# MarkItDown engine (breadth: PDF/PPT/images/audio/URL).
+markitdown = ["markitdown>=0.1.7"]
+markitdown-all = ["markitdown[all]>=0.1.7"]
+# LLM image-description / metadata enrichment (OpenAI- or Ollama-compatible).
+llm = ["openai>=1.0.0"]
+# Gradio WebUI.
+gui = ["gradio>=5.0.0"]
+# Typer-based command line entry point.
+cli = ["typer>=0.9.0"]
+# Legacy .doc text extraction (DocBuilder imports `textract` at call time; it
+# bundles antiword/catdoc/soffice system binaries, so it stays opt-in).
+legacy-doc = ["textract"]
+# Testing tooling.
+test = ["pytest>=7.0.0", "pytest-mock>=3.10.0", "coverage>=7.0.0", "ruff>=0.4.0"]
+# Everything for a full-featured local install.
+full = [
+    "omnidoc-pro[markitdown,gui,llm,cli,test]",
+]
+
+[project.urls]
+Homepage = "https://github.com/leop017/omnidoc-pro"
+
+[project.scripts]
+omnidoc = "omnidoc.ui.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["omnidoc", "omnidoc.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+extend-exclude = ["dist", "build", ".venv", "venv"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP"]
+ignore = ["E501", "UP045"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["omnidoc", "tests"]
+combine-as-imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

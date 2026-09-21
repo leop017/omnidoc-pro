@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 商业授权咨询
+    url: mailto:leop@astermail.org
+    about: GPL v3 与商业双许可下的企业使用、定制、支持
+  - name: 📚 文档与安装
+    url: https://github.com/leop017/omnidoc-pro#readme
+    about: 先读 README，确认是否已有答案
