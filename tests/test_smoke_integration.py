@@ -123,8 +123,8 @@ class TestDeepAllSheetsFail:
         # A corrupt .xlsx makes load_sheets raise per-sheet, so build() returns
         # {"sheets": [], "errors": [...]}. DeepEngine must surface ERROR status,
         # not the default OK, on that branch.
-        from omnidoc.engines.deep_engine import DeepEngine
         from omnidoc.core.document import ConversionStatus
+        from omnidoc.engines.deep_engine import DeepEngine
 
         bad = tmp_path / "corrupt.xlsx"
         bad.write_bytes(b"garbage-not-a-zip")
