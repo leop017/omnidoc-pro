@@ -33,7 +33,11 @@ def _heading_elements_from_text(text: str) -> list[Element]:
         if start > last and text[last:start].strip():
             # Keep the raw slice so `_render` output stays locatable in text.
             elements.append(Element("paragraph", text[last:start].strip()))
-        elements.append(Element("heading", m.group(2)))
+        # Record the heading level so `_render` can reconstruct the exact
+        # ``#`` prefix that exists in the source text (keeps chunk offsets
+        # accurate) while the chunk metadata header stays plain.
+        elements.append(Element("heading", m.group(2),
+                                metadata={"level": len(m.group(1))}))
         last = m.end()
     if last < len(text) and text[last:].strip():
         elements.append(Element("paragraph", text[last:].strip()))
@@ -67,24 +71,26 @@ class MarkdownChunker(ChunkerInterface):
 
         groups: list[tuple] = []
         current_header = ""
+        current_level = 0
         current_body: list[Element] = []
 
         for elem in doc.elements:
             if elem.element_type == "heading":
                 if current_body or current_header:
-                    groups.append((current_header, current_body))
+                    groups.append((current_header, current_level, current_body))
                 current_header = elem.text
+                current_level = int(elem.metadata.get("level", 0) or 0)
                 current_body = []
             else:
                 current_body.append(elem)
         if current_body or current_header:
-            groups.append((current_header, current_body))
+            groups.append((current_header, current_level, current_body))
 
         out: list[Chunk] = []
         total = len(groups)
         cursor = 0
-        for i, (header, body) in enumerate(groups):
-            text = self._render(header, body)
+        for i, (header, level, body) in enumerate(groups):
+            text = self._render(header, level, body)
             start = doc.text.find(text[:40], cursor) if text else cursor
             if start < 0:
                 start = cursor
@@ -117,10 +123,14 @@ class MarkdownChunker(ChunkerInterface):
         return out
 
     @staticmethod
-    def _render(header: str, body: list[Element]) -> str:
+    def _render(header: str, level: int, body: list[Element]) -> str:
         parts = []
         if header:
-            parts.append(f"# {header}")
+            # Rebuild the source ``#`` prefix so the rendered text matches the
+            # document byte-for-byte (keeps ``find`` offsets accurate). Level
+            # is 0 for engine-provided elements without a recorded level, in
+            # which case the header is emitted as-is.
+            parts.append(f"{'#' * level} {header}" if level else header)
         for elem in body:
             if elem.text:
                 parts.append(elem.text)

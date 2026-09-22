@@ -71,7 +71,12 @@ class ExcelBuilder:
     def _load_merged_cache_xls(input_path: str, sheet_names: list[str]) -> dict[str, list]:
         import xlrd
 
-        wb = xlrd.open_workbook(input_path, formatting_info=True)
+        log = get_logger()
+        try:
+            wb = xlrd.open_workbook(input_path, formatting_info=True)
+        except Exception as e:
+            log.warning("打开 .xls 工作簿 (formatting_info) 失败： %s", e)
+            return None
         try:
             cache: dict[str, list] = {}
             for sn in sheet_names:
@@ -85,6 +90,9 @@ class ExcelBuilder:
                     merged.append(_XlsMergeRange(clo + 1, rlo + 1, chi, rhi))
                 cache[sn] = merged
             return cache
+        except Exception as e:
+            log.warning("读取 .xls 合并单元格失败： %s", e)
+            return None
         finally:
             wb.release_resources()
 

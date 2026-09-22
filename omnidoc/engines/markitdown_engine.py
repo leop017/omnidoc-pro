@@ -32,36 +32,31 @@ def _ext(source: str) -> str:
 
 
 def _resolve_ip(url: str):
-    """Resolve hostname to IP.  Returns ipaddress object or None on failure."""
+    """Resolve hostname to IP.  Returns list of ipaddress objects or None on failure.
+
+    Checks *all* DNS records, not just the first, so multi-record responses
+    (one public + one private A) cannot bypass the SSRF guard.
+    """
     try:
         host = urlparse(url).hostname
         if not host:
             return None
         try:
-            return ipaddress.ip_address(host)
+            return [ipaddress.ip_address(host)]
         except ValueError:
             pass
         try:
             infos = socket.getaddrinfo(host, None)
-            return ipaddress.ip_address(infos[0][4][0])
+            ips = [ipaddress.ip_address(i[4][0]) for i in infos]
+            return ips if ips else None
         except Exception:
             return None
     except Exception:
         return None
 
 
-def _is_safe_url(url: str) -> bool:
-    """Reject URLs that resolve to private / loopback / link-local / reserved IPs.
-
-    Only http:// and https:// schemes are allowed.
-    """
-    scheme = (urlparse(url).scheme or "").lower()
-    if scheme not in ("http", "https"):
-        return False
-    ip = _resolve_ip(url)
-    if ip is None:
-        return True  # unresolvable -> let the fetch itself fail with a clear error
-    return not (
+def _is_private_ip(ip: ipaddress._BaseAddress) -> bool:
+    return (
         ip.is_private
         or ip.is_loopback
         or ip.is_link_local
@@ -69,6 +64,22 @@ def _is_safe_url(url: str) -> bool:
         or ip.is_unspecified
         or ip.is_multicast
     )
+
+
+def _is_safe_url(url: str) -> bool:
+    """Reject URLs that resolve to private / loopback / link-local / reserved IPs.
+
+    Only http:// and https:// schemes are allowed.
+    All DNS records are checked; if *any* resolves to a private IP the URL is
+    rejected (prevents multi-A-record DNS-rebinding bypass).
+    """
+    scheme = (urlparse(url).scheme or "").lower()
+    if scheme not in ("http", "https"):
+        return False
+    ips = _resolve_ip(url)
+    if ips is None:
+        return True  # unresolvable -> let the fetch itself fail with a clear error
+    return not any(_is_private_ip(ip) for ip in ips)
 
 
 def _build_llm_kwargs(llm: dict[str, Any], offline_mode: bool) -> dict[str, Any]:
