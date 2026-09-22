@@ -57,6 +57,7 @@ def _build_config(
     chunk_strategy: str,
     chunk_size: int,
     chunk_overlap: int,
+    chunk_max_size: int,
     offline: bool,
     llm_enabled: bool,
     llm_base_url: str,
@@ -75,6 +76,7 @@ def _build_config(
     cfg.chunking.strategy = chunk_strategy
     cfg.chunking.chunk_size = chunk_size
     cfg.chunking.chunk_overlap = chunk_overlap
+    cfg.chunking.max_chunk_size = chunk_max_size
     cfg.llm = _resolve_llm(llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt, offline)
     return cfg
 
@@ -114,6 +116,7 @@ def cmd_convert(
     chunk_strategy: str = typer.Option("fixed", "--chunk-strategy", help="fixed/sentence/markdown"),
     chunk_size: int = typer.Option(512, "--chunk-size", help="分块大小（字符）"),
     chunk_overlap: int = typer.Option(64, "--chunk-overlap", help="分块重叠（字符）"),
+    chunk_max_size: int = typer.Option(0, "--chunk-max-size", help="markdown 策略下单子树最大字符数，0=不切分"),
     offline: bool = typer.Option(False, "--offline", help="离线模式，跳过 LLM 增强"),
     llm: bool = typer.Option(False, "--llm", help="启用 LLM 图像描述"),
     llm_base_url: str = typer.Option("", "--llm-base-url", help="LLM Base URL（或 env OMNIDOC_LLM_BASE_URL）"),
@@ -126,7 +129,7 @@ def cmd_convert(
     """把一组文档 / URL 转成 RAG 友好的 Markdown（可选分块 + LLM 图像增强）。"""
     cfg = _build_config(
         output_fmt, enhanced_md, not no_deep_first, not no_fallback,
-        chunk, chunk_strategy, chunk_size, chunk_overlap,
+        chunk, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
         offline, llm, llm_base_url, llm_api_key, llm_model, llm_prompt,
     )
     results = get_controller().convert_batch(list(sources), cfg)

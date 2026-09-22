@@ -41,6 +41,7 @@ def _build_config(
     chunk_strategy: str,
     chunk_size: int,
     chunk_overlap: int,
+    chunk_max_size: int,
     offline_mode: bool,
     llm_enabled: bool,
     llm_base_url: str,
@@ -59,6 +60,7 @@ def _build_config(
     cfg.chunking.strategy = chunk_strategy
     cfg.chunking.chunk_size = int(chunk_size)
     cfg.chunking.chunk_overlap = int(chunk_overlap)
+    cfg.chunking.max_chunk_size = int(chunk_max_size or 0)
     cfg.llm.enabled = bool(llm_enabled)
     cfg.llm.base_url = llm_base_url or ""
     cfg.llm.api_key = llm_api_key or ""
@@ -78,6 +80,7 @@ def _on_convert(
     chunk_strategy,
     chunk_size,
     chunk_overlap,
+    chunk_max_size,
     offline_mode,
     llm_enabled,
     llm_base_url,
@@ -90,7 +93,7 @@ def _on_convert(
 
     cfg = _build_config(
         output_fmt, enhanced_md, deep_first, allow_fallback,
-        chunking_enabled, chunk_strategy, chunk_size, chunk_overlap,
+        chunking_enabled, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
         offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt,
     )
     # gr.File(type="filepath") hands the callback plain path *strings*;
@@ -152,6 +155,7 @@ def build_app() -> gr.Blocks:
                     chunk_strategy = gr.Radio(["fixed", "sentence", "markdown"], value="fixed", label="分块策略")
                     chunk_size = gr.Number(512, label="chunk_size", precision=0)
                     chunk_overlap = gr.Number(64, label="chunk_overlap", precision=0)
+                    chunk_max_size = gr.Number(0, label="chunk_max_size（markdown 策略上限，0=不切分）", precision=0)
                 with gr.Accordion("🔗 LLM 图像描述（可选）", open=False):
                     llm_enabled = gr.Checkbox(False, label="使用 LLM 描述图片")
                     llm_base_url = gr.Textbox(placeholder="https://api.openai.com/v1", label="Base URL")
@@ -172,6 +176,7 @@ def build_app() -> gr.Blocks:
             _on_convert,
             inputs=[files, urls, output_fmt, enhanced_md, deep_first, allow_fallback,
                     chunking_enabled, chunk_strategy, chunk_size, chunk_overlap,
+                    chunk_max_size,
                     offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt],
             outputs=[md_out, status_box, count_box],
         )
