@@ -298,9 +298,10 @@ git push origin vX.Y.Z
 
 ## 📊 版本
 
-当前版本：**0.1.4**（Alpha）
+当前版本：**0.1.5**（Alpha）
 
 - 变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
+  - [v0.1.5](./RELEASE_NOTES/0.1.5.md) — 安全加固 + 鲁棒性修复（SSRF / .xls / Markdown 分块 / CI ref）
   - [v0.1.4](./RELEASE_NOTES/0.1.4.md) — 真实 Bug 修复 + Excel 合并单元格与分块策略改进
   - [v0.1.3](./RELEASE_NOTES/0.1.3.md) — 发布测试门禁 + 代码清理
   - [v0.1.2](./RELEASE_NOTES/0.1.2.md) — 发布流程完善 + 文档维护
