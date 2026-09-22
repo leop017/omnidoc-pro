@@ -4,6 +4,7 @@
 
 ## 版本
 
+- [0.1.7](./0.1.7.md) — 分块元数据准确性修复（chunk_count / 偏移量 / 类型卫生）
 - [0.1.6](./0.1.6.md) — 打通 `max_chunk_size` 契约（config / CLI / WebUI 端到端）
 - [0.1.5](./0.1.5.md) — 安全加固 + 鲁棒性修复（SSRF / .xls / Markdown 分块 / CI ref）
 - [0.1.4](./0.1.4.md) — 真实 Bug 修复 + Excel 合并单元格与分块策略改进
