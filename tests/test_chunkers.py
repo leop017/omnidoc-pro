@@ -130,6 +130,31 @@ class TestSentenceChunker(unittest.TestCase):
         for c in chunks:
             self.assertLessEqual(len(c.text), 80)
 
+    def test_offsets_match_source_slice(self):
+        # Regression: start_index / end_index must be true byte offsets into
+        # the original (stripped) source text, not re-inferred heuristics.
+        # Slicing text[start:end] must reproduce chunk.text exactly.
+        chunker = SentenceChunker()
+        sentences = [f"Number {i} is a fact." for i in range(50)]
+        text = " ".join(sentences)
+        chunks = chunker.chunk(text, {"chunk_size": 120, "chunk_overlap": 20})
+        self.assertGreater(len(chunks), 2)
+        for c in chunks:
+            self.assertEqual(text[c.start_index : c.end_index], c.text)
+            self.assertGreaterEqual(c.end_index, c.start_index)
+
+    def test_offsets_contiguous_with_overlap(self):
+        # With overlap > 0, chunk[i+1].start_index may be <= chunk[i].end_index
+        # (reusing tail context), but must still satisfy start <= end and the
+        # slice must round-trip through the source text.
+        chunker = SentenceChunker()
+        text = "a b c d e f g h i j k l m n o p q r s t u v w x y z"
+        chunks = chunker.chunk(text, {"chunk_size": 10, "chunk_overlap": 4})
+        for i, c in enumerate(chunks):
+            self.assertEqual(text[c.start_index : c.end_index], c.text)
+            if i > 0:
+                self.assertLessEqual(c.start_index, chunks[i - 1].end_index)
+
 
 class TestMarkdownChunker(unittest.TestCase):
 
@@ -182,6 +207,38 @@ class TestMarkdownChunker(unittest.TestCase):
     def test_fallback_empty_text_still_empty(self):
         doc = Document(text="   ")  # no elements, no real text
         self.assertEqual(MarkdownChunker().chunk(doc, {}), [])
+
+    def test_chunk_count_is_real_total_when_split(self):
+        # Regression: when max_chunk_size splits one subtree into N pieces,
+        # every emitted chunk's metadata["chunk_count"] must equal the real
+        # total number of chunks (len(out)), NOT groups * pieces.
+        md = "# H\n\n" + ("x" * 5000)
+        doc = Document(text=md, elements=[
+            Element("heading", "H"),
+            Element("paragraph", "x" * 5000),
+        ])
+        chunks = MarkdownChunker().chunk(doc, {"max_chunk_size": 200})
+        self.assertGreater(len(chunks), 1)
+        for c in chunks:
+            self.assertEqual(c.metadata["chunk_count"], len(chunks))
+            self.assertIn(c.metadata["chunk_index"], range(len(chunks)))
+
+    def test_chunk_count_mixed_split_and_unsplit(self):
+        # One subtree is split by max_chunk_size, another is not. The
+        # chunk_count metadata must reflect the GLOBAL total across all
+        # emitted chunks, so downstream RAG consumers read a single number.
+        md = "# A\n\n" + ("a" * 5000) + "\n\n# B\n\nshort."
+        doc = Document(text=md, elements=[
+            Element("heading", "A"),
+            Element("paragraph", "a" * 5000),
+            Element("heading", "B"),
+            Element("paragraph", "short."),
+        ])
+        chunks = MarkdownChunker().chunk(doc, {"max_chunk_size": 200})
+        # A subtree emits multiple pieces, B emits one; total = pieces(A) + 1.
+        self.assertGreater(len(chunks), 2)
+        for c in chunks:
+            self.assertEqual(c.metadata["chunk_count"], len(chunks))
 
 
 if __name__ == "__main__":

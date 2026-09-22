@@ -10,7 +10,7 @@ whitespace or end-of-string.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, NamedTuple
 
 from omnidoc.core.document import Chunk
 from omnidoc.core.interfaces import ChunkerInterface
@@ -22,11 +22,42 @@ DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP = 64
 
 
+class _Sentence(NamedTuple):
+    """A sentence with its exact start offset in the source text."""
+
+    text: str
+    start: int
+
+
+def _split_with_offsets(text: str) -> list[_Sentence]:
+    """Split ``text`` on sentence boundaries while recording each
+    sentence's true start offset (required for accurate ``start_index`` /
+    ``end_index`` metadata in :class:`Chunk`).
+    """
+    out: list[_Sentence] = []
+    pos = 0
+    for m in _BOUNDARY_RE.finditer(text):
+        seg = text[pos:m.start()]
+        seg_stripped = seg.rstrip()
+        if seg_stripped:
+            out.append(_Sentence(seg_stripped, pos + (len(seg) - len(seg_stripped))))
+        pos = m.end()
+    tail = text[pos:].rstrip()
+    if tail:
+        out.append(_Sentence(tail, pos + (len(text) - pos - len(tail))))
+    return out
+
+
 class SentenceChunker(ChunkerInterface):
     """Chunk on sentence boundaries while staying under ``chunk_size``.
 
     Reads ``chunk_size`` / ``chunk_overlap`` from the pipeline ``config``
     dict (falling back to the defaults below when absent).
+
+    ``start_index`` / ``end_index`` on each emitted :class:`Chunk` are
+    **byte offsets into the original (stripped) source text**: the
+    sentence-boundary walk records the exact position of every sentence,
+    so offsets are not re-inferred via ``str.find`` heuristics.
     """
 
     name = "sentence"
@@ -45,52 +76,47 @@ class SentenceChunker(ChunkerInterface):
         if not text:
             return []
 
-        sentences = [s for s in _BOUNDARY_RE.split(text) if s]
+        sentences = _split_with_offsets(text)
         if not sentences:
             return []
 
-        chunks: list[str] = []
-        current: list[str] = []
-        current_len = 0
+        # Walk the sentences greedily; for each emitted chunk we keep the
+        # true source-text start offset of its first sentence and the end
+        # offset of its last sentence.
+        spans: list[tuple[int, int]] = []  # (start_off, end_off) per chunk
+        pending: list[tuple[int, int]] = []  # (start_off, end_off) per sentence
+        pending_len = 0
 
-        for sent in sentences:
-            sent_len = len(sent) + (1 if current else 0)
-            if current and current_len + sent_len > size:
-                chunks.append(" ".join(current))
-                overlap_text = " ".join(current)
-                if overlap > 0 and len(overlap_text) > overlap:
-                    overlap_text = overlap_text[-overlap:]
-                current = [overlap_text] if overlap_text else []
-                current_len = len(overlap_text)
-                if current:
-                    current.append(sent)
-                    current_len += len(sent) + 1
-                else:
-                    current.append(sent)
-                    current_len = len(sent)
-            else:
-                current.append(sent)
-                current_len += sent_len
+        def _flush() -> None:
+            nonlocal pending, pending_len
+            if pending:
+                spans.append((pending[0][0], pending[-1][1]))
+                pending, pending_len = [], 0
 
-        if current:
-            tail = " ".join(current)
-            if chunks and tail == chunks[-1]:
-                pass
-            else:
-                chunks.append(tail)
+        for s, s_start in sentences:
+            s_end = s_start + len(s)
+            add_len = len(s) + (1 if pending else 0)
+            if pending and pending_len + add_len > size:
+                _flush()
+                if overlap > 0 and spans:
+                    # Re-anchor: the new window starts at the last
+                    # ``overlap`` characters of the previous span so the
+                    # next chunk can reuse that context without breaking
+                    # its source offsets.
+                    prev_end = spans[-1][1]
+                    anchor = max(spans[-1][0], prev_end - overlap)
+                    pending = [(anchor, prev_end)]
+                    pending_len = prev_end - anchor
+            pending.append((s_start, s_end))
+            pending_len += add_len
+        _flush()
 
-        total = len(chunks)
+        total = len(spans)
         out: list[Chunk] = []
-        cursor = 0
-        for i, body in enumerate(chunks):
-            start = text.find(body[:40], cursor)
-            if start < 0:
-                start = cursor
-            end = start + len(body)
-            cursor = max(end - overlap, start + 1)
+        for i, (start, end) in enumerate(spans):
             out.append(
                 make_chunk(
-                    text=body,
+                    text=text[start:end],
                     metadata=doc.metadata,
                     index=i,
                     total=total,

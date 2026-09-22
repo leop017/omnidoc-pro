@@ -86,10 +86,9 @@ class MarkdownChunker(ChunkerInterface):
         if current_body or current_header:
             groups.append((current_header, current_level, current_body))
 
-        out: list[Chunk] = []
-        total = len(groups)
+        pre_split: list[tuple[str, str, int, list[str]]] = []
         cursor = 0
-        for i, (header, level, body) in enumerate(groups):
+        for header, level, body in groups:
             text = self._render(header, level, body)
             start = doc.text.find(text[:40], cursor) if text else cursor
             if start < 0:
@@ -98,28 +97,39 @@ class MarkdownChunker(ChunkerInterface):
             cursor = end
             if max_chunk_size and len(text) > max_chunk_size:
                 pieces = self._split_long(text, max_chunk_size)
+            else:
+                pieces = [text]
+            pre_split.append((text, header, start, pieces))
+        total = sum(len(p) for _, _, _, p in pre_split)
+
+        out: list[Chunk] = []
+        index = 0
+        for text, header, start, pieces in pre_split:
+            if len(pieces) > 1:
                 for j, piece in enumerate(pieces):
                     out.append(
                         make_chunk(
                             text=piece,
                             metadata={**doc.metadata, "header": header, "part": j},
-                            index=len(out),
-                            total=total * len(pieces),
+                            index=index,
+                            total=total,
                             start=start + sum(len(p) for p in pieces[:j]),
                             end=start + sum(len(p) for p in pieces[:j + 1]),
                         )
                     )
+                    index += 1
             else:
                 out.append(
                     make_chunk(
                         text=text,
                         metadata={**doc.metadata, "header": header},
-                        index=i,
+                        index=index,
                         total=total,
                         start=start,
-                        end=end,
+                        end=start + len(text),
                     )
                 )
+                index += 1
         return out
 
     @staticmethod

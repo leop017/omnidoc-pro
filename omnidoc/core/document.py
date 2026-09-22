@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any
 
 
 class ConversionStatus(str, Enum):
@@ -103,9 +103,8 @@ class DocumentResult:
     def add_warning(self, message: str) -> None:
         self.warnings.append(message)
 
-    def add_error(self, message: str) -> Optional[None]:
+    def add_error(self, message: str) -> None:
         self.errors.append(message)
-        return None
 
     def to_dict(self, include_markdown: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
