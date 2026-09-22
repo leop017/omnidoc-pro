@@ -59,6 +59,7 @@ class ChunkingSettings(BaseModel):
     strategy: str = "fixed"          # "fixed" | "sentence" | "markdown"
     chunk_size: int = 512
     chunk_overlap: int = 64
+    max_chunk_size: int = 0          # >0 only caps the markdown chunker's split
 
 
 class OmniDocConfig(BaseModel):

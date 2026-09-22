@@ -27,6 +27,20 @@ def test_config_defaults_flatten():
     assert "max_rows" not in kwargs
 
 
+def test_chunking_settings_carries_max_chunk_size():
+    """max_chunk_size must flow through to_engine_kwargs so the markdown
+    chunker's cap is actually reachable from the product entry points."""
+    from omnidoc.core.config import ChunkingSettings
+
+    assert ChunkingSettings().max_chunk_size == 0
+    assert "max_chunk_size" in ChunkingSettings.model_fields
+
+    kwargs = OmniDocConfig(
+        chunking=ChunkingSettings(enabled=True, strategy="markdown", max_chunk_size=1234)
+    ).to_engine_kwargs()
+    assert kwargs["chunking"]["max_chunk_size"] == 1234
+
+
 def test_llm_usable_requires_all_parts():
     assert LlmSettings().is_usable() is False
     assert (
