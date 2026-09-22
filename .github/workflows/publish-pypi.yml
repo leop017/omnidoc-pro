@@ -84,11 +84,36 @@ jobs:
           name: dist
           path: dist
 
+      - name: Check if package is already on PyPI
+        id: check
+        run: |
+          VERSION=${{ inputs.ref }}
+          if [ -z "$VERSION" ]; then
+            VERSION="${{ github.ref_name }}"
+          fi
+          VERSION="${VERSION#v}"
+          echo "Checking version: ${VERSION}"
+          if curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${VERSION}/json" | grep -q "404"; then
+            echo "Version ${VERSION} not yet on PyPI, proceeding with upload."
+            echo "should_upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version ${VERSION} already exists on PyPI, skipping upload."
+            echo "should_upload=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install twine
+        if: steps.check.outputs.should_upload == 'true'
         run: pip install --upgrade twine
 
       - name: Upload to PyPI
+        if: steps.check.outputs.should_upload == 'true'
         env:
           PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
           twine upload --username __token__ --password "$PYPI_API_TOKEN" dist/*
+
+      - name: Confirm already-published
+        if: steps.check.outputs.should_upload == 'false'
+        run: |
+          echo "No-op: this version was already published to PyPI in a previous run."
+          echo "✅ Release is up-to-date on PyPI."
