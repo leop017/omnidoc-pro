@@ -171,13 +171,13 @@ def cmd_webui(
 ) -> None:
     """启动 Gradio WebUI（薄壳，仅调用 build_app / controller）。"""
     try:
-        from omnidoc.ui.webui import build_app
+        from omnidoc.ui.webui import build_app, launch_app
     except ImportError:
         typer.echo("未检测到 Gradio。请安装 GUI 依赖：pip install 'omnidoc-pro[gui]'")
         raise typer.Exit(code=1)
     blocks = build_app()
     typer.echo(f"启动 OmniDoc Pro WebUI：http://127.0.0.1:{port}/")
-    blocks.launch(server_name="127.0.0.1", server_port=port, inbrowser=True, share=share)
+    launch_app(blocks, server_name="127.0.0.1", server_port=port, share=share)
 
 
 # ── app assembly (only when typer is available) ──────────────────

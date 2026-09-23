@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import threading
 import webbrowser
+from typing import Any
 
 import gradio as gr
 
@@ -18,6 +19,30 @@ from omnidoc.core.config import OmniDocConfig
 
 # Mutable so retries refresh the browser URL.
 _server_port = 7860
+
+
+def _theme_kwargs() -> dict[str, Any]:
+    if int(gr.__version__.partition(".")[0]) >= 6:
+        return {"theme": gr.themes.Soft()}
+    return {}
+
+
+def launch_app(
+    blocks: gr.Blocks,
+    *,
+    server_name: str,
+    server_port: int,
+    inbrowser: bool = True,
+    share: bool = False,
+) -> None:
+    kwargs: dict[str, Any] = {
+        "server_name": server_name,
+        "server_port": server_port,
+        "inbrowser": inbrowser,
+        "share": share,
+    }
+    kwargs.update(_theme_kwargs())
+    blocks.launch(**kwargs)
 
 
 def _open_web() -> None:
@@ -126,7 +151,7 @@ def _on_convert(
 
 
 def build_app() -> gr.Blocks:
-    with gr.Blocks(title="OmniDoc Pro", theme=gr.themes.Soft()) as app:
+    with gr.Blocks(title="OmniDoc Pro") as app:
         gr.Markdown(
             "## 📄 OmniDoc Pro\n"
             "本地文档预处理工作台：Word/Excel 深度解析 + MarkItDown 广度解析"
@@ -168,7 +193,7 @@ def build_app() -> gr.Blocks:
                     test_btn.click(_on_test_llm, inputs=[llm_base_url, llm_api_key, llm_model], outputs=[llm_status])
                 convert_btn = gr.Button("⚡ 开始转换", variant="primary")
             with gr.Column(scale=2):
-                md_out = gr.Markdown("等待上传文档或输入网页 URL…", show_copy_button=True)
+                md_out = gr.Markdown("等待上传文档或输入网页 URL…")
                 status_box = gr.Textbox(interactive=False, label="状态", lines=3)
                 count_box = gr.Textbox(interactive=False, label="计数")
 
@@ -192,7 +217,7 @@ def main() -> None:
     parser.add_argument("--share", action="store_true")
     args = parser.parse_args()
     _server_port = args.port
-    build_app().launch(server_name="127.0.0.1", server_port=args.port, inbrowser=True, share=args.share)
+    launch_app(build_app(), server_name="127.0.0.1", server_port=args.port, share=args.share)
 
 
 if __name__ == "__main__":
