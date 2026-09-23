@@ -4,6 +4,7 @@
 
 ## 版本
 
+- [0.1.8](./0.1.8.md) — Gradio 6 兼容性修复（theme 迁移 / show_copy_button / launch 收敛）
 - [0.1.7](./0.1.7.md) — 分块元数据准确性修复（chunk_count / 偏移量 / 类型卫生）
 - [0.1.6](./0.1.6.md) — 打通 `max_chunk_size` 契约（config / CLI / WebUI 端到端）
 - [0.1.5](./0.1.5.md) — 安全加固 + 鲁棒性修复（SSRF / .xls / Markdown 分块 / CI ref）
