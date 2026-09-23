@@ -4,11 +4,13 @@
 
 将 Word / Excel / PDF / PPT / 图片 / 音频 / HTML / CSV / 网页 等 20+ 格式统一转换为 RAG 友好的 Markdown 或分块（chunks），支持可选 LLM 图像描述增强，完全本地运行、无数据外泄。
 
+> **MarkItDown 是格式转换器，OmniDoc Pro 是 RAG 管道。** 它复用了 MarkItDown 的格式覆盖，在此基础上增加三级优雅降级（深度 → 广度 → LLM）、结构化分块（带元数据与偏移量）、内置 LLM 图像增强、SSRF 防护。如果你只需要"PDF 转 Markdown"，直接用 MarkItDown；如果你需要生产级 RAG 预处理管道，用 OmniDoc Pro。
+
 <p>
   <a href="https://pypi.org/project/omnidoc-pro/"><img alt="PyPI 版本" src="https://img.shields.io/pypi/v/omnidoc-pro?label=PyPI&color=blueviolet"></a>
   <img alt="Python 版本" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blueviolet">
+  <img alt="测试" src="https://img.shields.io/badge/tests-292%20passed-rgb:4c1,1f6,1d4">
   <a href="./LICENSE"><img alt="许可" src="https://img.shields.io/badge/license-GPL%20v3%20%7C%20Commercial-rgb:4c1,1f6,1d4"></a>
-  <img alt="状态" src="https://img.shields.io/badge/status-alpha-rgb:e79,fa4,3b7">
 </p>
 <p>
   <a href="https://github.com/leop017/omnidoc-pro/stargazers"><img alt="GitHub Stars" src="https://img.shields.io/github/stars/leop017/omnidoc-pro?style=flat-square"></a>
@@ -57,29 +59,41 @@
 └─────────────────────────────────────────────────────┘
 ```
 
-### 设计原则
-
-1. **广度 + 深度路由**：Word/Excel 走深度引擎（结构化解析），其他格式走广度引擎（MarkItDown）
-2. **UI 零侵入**：`core` / `engines` / `processors` 包绝不导入任何 UI 库
-3. **优雅降级**：引擎失败 → 自动降级；LLM 不可用 → 跳过增强记 warning；单文件失败不中断批次
-4. **并发限流**：LLM 图像描述用 `asyncio.Semaphore` 控制并发数
-
 ## 🚀 快速开始
+
+### 无 Python 环境？直接下 exe（Windows）
+
+Windows 用户可下载独立可执行文件（已内置 Python + 全部依赖，解压即用）：
+
+- [`omnidoc.exe`](https://github.com/leop017/omnidoc-pro/releases) — CLI 版（双击或拖文件转换）
+- [`omnidoc-web.exe`](https://github.com/leop017/omnidoc-pro/releases) — WebUI 版（自动开浏览器）
+
+Linux / macOS 用户请通过 `pip install` 安装。
 
 ### 安装
 
 ```bash
-# 基础安装（核心 + 深度引擎依赖）
-pip install omnidoc-pro
-
-# 全功能安装（+ MarkItDown 广度引擎 + Gradio WebUI + LLM + CLI + 测试）
+# 推荐：全功能（深度 + 广度 + LLM + CLI + WebUI + 测试）
 pip install "omnidoc-pro[full]"
 
+# 仅核心 + 深度引擎（Word/Excel）
+pip install omnidoc-pro
+
 # 按需安装
-pip install "omnidoc-pro[markitdown]"   # 广度引擎
-pip install "omnidoc-pro[gui]"          # Gradio WebUI
-pip install "omnidoc-pro[llm]"         # LLM 图像描述
+pip install "omnidoc-pro[markitdown]"   # 广度引擎（PDF/PPT/图片/HTML/CSV…）
+pip install "omnidoc-pro[llm]"          # LLM 图像描述
 pip install "omnidoc-pro[cli]"         # Typer 命令行
+pip install "omnidoc-pro[gui]"         # Gradio WebUI
+```
+
+> `[full]` 安装已自动包含 MarkItDown 依赖。仅安装基础包时，广度引擎不可用（深度引擎正常），安装 `[markitdown]` 可启用。
+
+### 30 秒上手
+
+```bash
+pip install "omnidoc-pro[full]"
+omnidoc convert report.docx -f md          # 转换 Word → Markdown
+omnidoc convert data.xlsx -f md --chunk    # 转换 Excel → 分块
 ```
 
 ### 命令行使用
@@ -126,6 +140,43 @@ for chunk in result.chunks:
     print(chunk.text[:100])
 ```
 
+### 输出示例
+
+转换一个 Excel 文件（`sales_2025.xlsx`，含两个 Sheet）并分块后的 Markdown 输出：
+
+````markdown
+<!-- source: sales_2025.xlsx | 2 sheets | 14 rows total -->
+## Sheet: 销售汇总
+
+| 部门 | 金额 | 状态 |
+|------|------|------|
+| 华东 | ¥1,234.00 | 已审核 |
+| 华南 | ¥5,678.00 | 待审批 |
+| 华北 | ¥3,210.00 | 已审核 |
+
+## Sheet: 明细
+
+| 客户 | 订单号 | 金额 | 备注 |
+|------|--------|------|------|
+| 张三 | ORD-2025-001 | ¥200.00 | （合并单元格已展开） |
+| 李四 | ORD-2025-002 | ¥450.00 | VIP |
+````
+
+`--chunk --chunk-strategy markdown --json` 的分块输出：
+
+```json
+[
+  {"text": "## Sheet: 销售汇总\n\n| 部门 | 金额 | 状态 |\n...",
+   "start_index": 0, "end_index": 156,
+   "chunk_index": 0, "chunk_count": 3, "sheet_name": "销售汇总"},
+  {"text": "## Sheet: 明细\n\n| 客户 | 订单号 | 金额 | 备注 |\n...",
+   "start_index": 157, "end_index": 298,
+   "chunk_index": 1, "chunk_count": 3, "sheet_name": "明细"}
+]
+```
+
+每个 chunk 均携带 `chunk_index` / `chunk_count`（进度提示）及源文件元数据，可直接写入向量数据库的 metadata 字段。
+
 ## 📋 支持格式
 
 | 类别 | 格式 | 引擎 |
@@ -144,88 +195,25 @@ for chunk in result.chunks:
 ## 🗂 项目结构
 
 ```
-omnidoc-pro/
-├── omnidoc/
-│   ├── __init__.py           # 包入口，导出公共 API
-│   ├── core/
-│   │   ├── config.py        # OmniDocConfig（Pydantic 统一配置）
-│   │   ├── document.py      # Document / Chunk / Element / DocumentResult
-│   │   └── interfaces.py    # EngineInterface / CleanerInterface / ...
-│   ├── engines/
-│   │   ├── deep_engine.py   # 深度引擎门面（Word/Excel/.doc）
-│   │   ├── markitdown_engine.py  # 广度引擎门面 + SSRF 防护
-│   │   └── deep/           # 深度解析内部模块
-│   │       ├── _word.py     # WordBuilder
-│   │       ├── _excel.py    # ExcelBuilder
-│   │       ├── _doc.py      # DocBuilder（legacy .doc）
-│   │       ├── _exporters.py  # md/html/json 导出器
-│   │       ├── _models.py   # 解析数据模型
-│   │       ├── _utils.py    # 工具函数
-│   │       └── _logger.py   # 日志
-│   ├── controller/
-│   │   ├── router.py        # EngineRouter（路由 + 降级链）
-│   │   └── conversion.py    # ConversionController（唯一入口）
-│   ├── processors/
-│   │   ├── pipeline.py      # ProcessingPipeline（clean→chunk→enhance）
-│   │   ├── cleaners/
-│   │   │   └── word_md.py   # WordMdCleaner（页码/空行/空格/重复）
-│   │   ├── chunkers/
-│   │   │   ├── fixed_size.py
-│   │   │   ├── sentence.py
-│   │   │   └── markdown.py
-│   │   └── enhancers/
-│   │       └── __init__.py  # LlmEnhancer 工厂
-│   ├── ai/
-│   │   └── llm_service.py   # LLM 服务（连接探测 / 图像描述 / 限流）
-│   └── ui/
-│       ├── webui.py         # Gradio WebUI（薄壳）
-│       └── cli.py           # Typer CLI（薄壳）
-├── tests/                    # 13 个测试文件
-├── RELEASE_NOTES/            # 每版本 release notes（X.Y.Z.md）
-│   ├── 0.1.0.md
-│   └── README.md             # 命名规则 + 索引
-├── .github/
-│   └── workflows/
-│       ├── release.yml       # tag push 自动 build + GitHub Release
-│       └── publish-pypi.yml  # tag push 自动 twine 上传 PyPI
-├── scripts/
-│   └── release.py            # 手动一键发布脚本（build→tag→release→pypi）
-├── omnidoc.spec              # PyInstaller 打包配置（CLI）
-├── omnidoc-web.spec          # PyInstaller 打包配置（WebUI）
-├── pyproject.toml
-├── README.md
-├── LICENSE                   # GPL v3
-└── LICENSE-COMMERCIAL.md     # 商业许可说明
+omnidoc/
+├── core/         # OmniDocConfig / Document / Chunk / 接口
+├── engines/      # DeepEngine（深度）+ MarkItDownEngine（广度 + SSRF 防护）
+├── controller/   # EngineRouter（路由/降级链）+ ConversionController（唯一入口）
+├── processors/   # 清洗 + 3 种分块器 + LlmEnhancer
+├── ai/           # LLM 服务（连接探测 / 图像描述 / 限流）
+└── ui/           # CLI（Typer）+ WebUI（Gradio）薄壳
 ```
 
 ## 🔒 许可证
 
-本项目采用 **双许可（Dual License）** 模式：
+双许可模式：
 
 | 使用场景 | 许可证 | 说明 |
 |---------|--------|------|
-| 个人 / 开源 / 学术 | **GPL v3**（免费） | 完全免费，但衍生作品必须以 GPL v3 发布 |
-| 企业 / 商业闭源 | **商业许可证**（付费） | 免除 GPL v3 开源义务，需向作者购买授权 |
+| 个人 / 开源 / 学术 | **GPL v3**（免费） | 衍生作品必须以 GPL v3 发布 |
+| 企业 / 商业闭源 | **商业授权**（付费） | 免除 GPL v3 开源义务 |
 
-- 开源许可证全文见 [LICENSE](./LICENSE)（GPL v3）
-- 商业许可条款见 [LICENSE-COMMERCIAL.md](./LICENSE-COMMERCIAL.md)
-- 商业授权请联系：leop@astermail.org
-
-> 详见下方「[许可证详情](#许可证详情)」章节。
-
-## 📖 许可证详情
-
-### 个人 / 开源使用（GPL v3，免费）
-
-- 个人学习、研究、开源项目集成均可**免费使用**
-- 如果你修改了本项目并以任何形式分发（包括 SaaS 形式提供），修改后的代码必须以 **GPL v3** 许可证开源
-- 商用闭源分发**不被** GPL v3 允许
-
-### 企业 / 商业使用（商业许可证，付费）
-
-- 如果你的公司需要**闭源商业化**使用本项目（不公开修改后的代码），需要购买商业许可证
-- 商业许可证免除 GPL v3 的开源义务
-- 具体条款请联系作者获取报价
+- [GPL v3 全文](./LICENSE) | [商业许可条款](./LICENSE-COMMERCIAL.md) | 商业授权咨询：leop@astermail.org
 
 ## 🤝 贡献
 
@@ -285,30 +273,11 @@ git push origin vX.Y.Z
 # 到 GitHub Actions 页面查看两个 workflow 的运行状态
 ```
 
-### 无 Python 环境？直接下 exe
-
-不想装 Python？从 [GitHub Releases](https://github.com/leop017/omnidoc-pro/releases) 下载独立可执行文件：
-
-- `omnidoc.exe` — 命令行版（双击或拖文件转换）
-- `omnidoc-web.exe` — WebUI 版（自动开浏览器，等价于 `omnidoc webui`）
-
-这两个 exe 由 PyInstaller 打包，已内置 Python 运行时与全部依赖，解压即用、无需 Python 环境。
-
 > 仅维护者：本地可借助 `scripts/release.py` 一键完成 build / tag / 手动 PyPI 上传，详见该脚本头部说明。
 
 ## 📊 版本
 
-当前版本：**0.1.7**（Alpha）
-
-- 变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
-  - [v0.1.7](./RELEASE_NOTES/0.1.7.md) — 分块元数据准确性修复（chunk_count / 偏移量 / 类型卫生）
-  - [v0.1.6](./RELEASE_NOTES/0.1.6.md) — 打通 `max_chunk_size` 契约（config / CLI / WebUI 端到端）
-  - [v0.1.5](./RELEASE_NOTES/0.1.5.md) — 安全加固 + 鲁棒性修复（SSRF / .xls / Markdown 分块 / CI ref）
-  - [v0.1.4](./RELEASE_NOTES/0.1.4.md) — 真实 Bug 修复 + Excel 合并单元格与分块策略改进
-  - [v0.1.3](./RELEASE_NOTES/0.1.3.md) — 发布测试门禁 + 代码清理
-  - [v0.1.2](./RELEASE_NOTES/0.1.2.md) — 发布流程完善 + 文档维护
-  - [v0.1.1](./RELEASE_NOTES/0.1.1.md) — 修复 + CI 自动化
-  - [v0.1.0](./RELEASE_NOTES/0.1.0.md) — 首次公开发布
+当前版本 **0.1.7** — 完整变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
 
 ## 👤 致谢
 
