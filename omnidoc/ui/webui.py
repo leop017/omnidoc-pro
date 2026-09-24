@@ -8,6 +8,9 @@ returns fully-degraded :class:`DocumentResult`s. This module requires the
 
 from __future__ import annotations
 
+import os
+import re
+import tempfile
 import threading
 import webbrowser
 from typing import Any
@@ -94,6 +97,36 @@ def _build_config(
     return cfg
 
 
+def _download_name(source: str, ext: str) -> str:
+    """Derive a safe download filename from a source path or URL."""
+    if source.startswith(("http://", "https://")):
+        from urllib.parse import urlparse
+
+        parsed = urlparse(source)
+        raw = (parsed.netloc + parsed.path).rstrip("/")
+        if "/" in raw:
+            raw = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", raw)
+    else:
+        raw = os.path.splitext(os.path.basename(source))[0]
+    safe = re.sub(r"[^\w.-]+", "_", raw).strip("._-") or "untitled"
+    return f"{safe}.{ext}"
+
+
+def _write_downloads(results, out_dir: str) -> list[str]:
+    """Collect download paths: engine-written files are reused as-is; results
+    without them (MarkItDown / URL fetch) get one UTF-8 Markdown file each."""
+    paths: list[str] = []
+    for r in results:
+        if r.output_paths:
+            paths.extend(r.output_paths)
+        elif r.markdown:
+            target = os.path.join(out_dir, _download_name(r.source, "md"))
+            with open(target, "w", encoding="utf-8") as f:
+                f.write(r.markdown)
+            paths.append(target)
+    return paths
+
+
 def _on_convert(
     files,
     urls,
@@ -133,8 +166,10 @@ def _on_convert(
         if u:
             sources.append(u)
     if not sources:
-        return "等待上传文档或输入网页 URL…", "就绪", "—"
+        return "等待上传文档或输入网页 URL…", "就绪", "—", None
 
+    out_dir = tempfile.mkdtemp(prefix="omnidoc_webui_")
+    cfg.output_dir = out_dir
     results = get_controller().convert_batch(sources, cfg)
 
     md_parts, status_lines = [], []
@@ -147,7 +182,8 @@ def _on_convert(
             line += " · ⚠️ " + " | ".join(r.warnings)
         status_lines.append(line)
     md = "\n\n---\n\n".join(md_parts)
-    return md, "\n".join(status_lines), f"{len(results)} 个源"
+    downloads = _write_downloads(results, out_dir)
+    return md, "\n".join(status_lines), f"{len(results)} 个源", (downloads or None)
 
 
 def build_app() -> gr.Blocks:
@@ -196,6 +232,7 @@ def build_app() -> gr.Blocks:
                 md_out = gr.Markdown("等待上传文档或输入网页 URL…")
                 status_box = gr.Textbox(interactive=False, label="状态", lines=3)
                 count_box = gr.Textbox(interactive=False, label="计数")
+                file_out = gr.File(label="📥 下载转换结果", file_count="multiple")
 
         convert_btn.click(
             _on_convert,
@@ -203,7 +240,7 @@ def build_app() -> gr.Blocks:
                     chunking_enabled, chunk_strategy, chunk_size, chunk_overlap,
                     chunk_max_size,
                     offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt],
-            outputs=[md_out, status_box, count_box],
+            outputs=[md_out, status_box, count_box, file_out],
         )
     return app
 
