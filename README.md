@@ -277,7 +277,7 @@ git push origin vX.Y.Z
 
 ## 📊 版本
 
-当前版本 **0.1.9** — 完整变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
+当前版本 **0.2.0** — 完整变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
 
 ## 👤 致谢
 

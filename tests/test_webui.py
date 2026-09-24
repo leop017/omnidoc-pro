@@ -6,12 +6,13 @@ URL fetch) get one UTF-8 Markdown file each, named after the source path /
 URL.
 """
 
+import json
 import os
 import tempfile
 import unittest
 
-from omnidoc.core.document import ConversionStatus, DocumentResult
-from omnidoc.ui.webui import _download_name, _write_downloads
+from omnidoc.core.document import Chunk, ConversionStatus, DocumentResult
+from omnidoc.ui.webui import _download_name, _validate_chunking, _write_chunks, _write_downloads
 
 
 class TestDownloadName(unittest.TestCase):
@@ -102,6 +103,95 @@ class TestWriteDownloads(unittest.TestCase):
         self.assertEqual(len(paths), 2)
         self.assertEqual(paths[0], deep.output_paths[0])
         self.assertTrue(paths[1].endswith("example.com.md"))
+
+
+class TestValidateChunking(unittest.TestCase):
+
+    def test_disabled_returns_none(self):
+        self.assertIsNone(_validate_chunking(False, "fixed", 0, -1, -5))
+
+    def test_valid_fixed_params(self):
+        self.assertIsNone(_validate_chunking(True, "fixed", 512, 64, 0))
+
+    def test_valid_sentence_params(self):
+        self.assertIsNone(_validate_chunking(True, "sentence", 256, 32, 999))
+
+    def test_zero_chunk_size_rejected(self):
+        msg = _validate_chunking(True, "fixed", 0, 64, 0)
+        self.assertIn("chunk_size", msg)
+
+    def test_negative_chunk_size_rejected(self):
+        msg = _validate_chunking(True, "sentence", -10, 0, 0)
+        self.assertIn("chunk_size", msg)
+
+    def test_overlap_ge_size_rejected(self):
+        msg = _validate_chunking(True, "fixed", 64, 64, 0)
+        self.assertIn("chunk_overlap", msg)
+
+    def test_negative_overlap_rejected(self):
+        msg = _validate_chunking(True, "fixed", 512, -1, 0)
+        self.assertIn("chunk_overlap", msg)
+
+    def test_markdown_ignores_size_and_overlap(self):
+        self.assertIsNone(_validate_chunking(True, "markdown", 0, 999, 0))
+
+    def test_markdown_negative_max_rejected(self):
+        msg = _validate_chunking(True, "markdown", 512, 64, -5)
+        self.assertIn("chunk_max_size", msg)
+
+    def test_cleared_number_fields_treated_as_invalid(self):
+        msg = _validate_chunking(True, "fixed", None, None, None)
+        self.assertIsNotNone(msg)
+
+
+class TestWriteChunks(unittest.TestCase):
+
+    @staticmethod
+    def _chunk(text: str, start: int, end: int, header: str = None) -> Chunk:
+        meta = {"chunk_index": 0, "chunk_count": 1}
+        if header:
+            meta["header"] = header
+        return Chunk(text=text, metadata=meta, start_index=start, end_index=end)
+
+    def test_result_with_chunks_gets_jsonl_file(self):
+        r = DocumentResult(source="a.docx", engine="deep")
+        r.chunks = [self._chunk("hello", 0, 5), self._chunk("world", 6, 11)]
+        out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
+        paths = _write_chunks([r], out_dir)
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(paths[0].endswith("a.chunks.jsonl"))
+        with open(paths[0], encoding="utf-8") as f:
+            lines = [json.loads(line) for line in f if line.strip()]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(lines[0]["text"], "hello")
+        self.assertEqual(lines[0]["source"], "a.docx")
+        self.assertEqual(lines[0]["engine"], "deep")
+        self.assertEqual(lines[0]["metadata"]["chunk_count"], 1)
+        self.assertEqual(lines[1]["start_index"], 6)
+        self.assertEqual(lines[1]["end_index"], 11)
+
+    def test_result_without_chunks_skipped(self):
+        r = DocumentResult(source="x.docx", status=ConversionStatus.ERROR)
+        out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
+        self.assertEqual(_write_chunks([r], out_dir), [])
+        self.assertEqual(os.listdir(out_dir), [])
+
+    def test_batch_mixed_sources(self):
+        chunked = DocumentResult(source="a.docx", engine="deep")
+        chunked.chunks = [self._chunk("body", 0, 4)]
+        plain = DocumentResult(source="https://example.com/", engine="markitdown")
+        plain.markdown = "# b"
+        out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
+        paths = _write_chunks([chunked, plain], out_dir)
+        self.assertEqual(len(paths), 1)
+        self.assertTrue(paths[0].endswith("a.chunks.jsonl"))
+
+    def test_cjk_source_preserved_in_filename(self):
+        r = DocumentResult(source="报告.docx", engine="deep")
+        r.chunks = [self._chunk("内容", 0, 2)]
+        out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
+        paths = _write_chunks([r], out_dir)
+        self.assertTrue(paths[0].endswith("报告.chunks.jsonl"))
 
 
 if __name__ == "__main__":

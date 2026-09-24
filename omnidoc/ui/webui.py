@@ -60,6 +60,35 @@ def _on_test_llm(base_url: str, api_key: str, model: str) -> str:
     )
 
 
+def _validate_chunking(
+    chunking_enabled: bool,
+    chunk_strategy: str,
+    chunk_size,
+    chunk_overlap,
+    chunk_max_size,
+) -> str | None:
+    """Pre-flight check on chunking params (mirrors chunker-side rules).
+
+    Returns a human-readable error message, or None when the params are valid
+    (or chunking is disabled). markdown 策略只受 max_chunk_size 约束，size /
+    overlap 对它无意义。
+    """
+    if not chunking_enabled:
+        return None
+    issues: list[str] = []
+    if chunk_strategy in ("fixed", "sentence"):
+        size = int(chunk_size or 0)
+        overlap = int(chunk_overlap or 0)
+        if size <= 0:
+            issues.append("chunk_size 必须 > 0")
+        if overlap < 0 or overlap >= size:
+            issues.append("chunk_overlap 必须在 [0, chunk_size) 范围内")
+    else:
+        if int(chunk_max_size or 0) < 0:
+            issues.append("chunk_max_size 不能为负数（0=不切分）")
+    return "；".join(issues) if issues else None
+
+
 def _build_config(
     output_fmt: str,
     enhanced_md: bool,
@@ -86,8 +115,8 @@ def _build_config(
     )
     cfg.chunking.enabled = bool(chunking_enabled)
     cfg.chunking.strategy = chunk_strategy
-    cfg.chunking.chunk_size = int(chunk_size)
-    cfg.chunking.chunk_overlap = int(chunk_overlap)
+    cfg.chunking.chunk_size = int(chunk_size or 0)
+    cfg.chunking.chunk_overlap = int(chunk_overlap or 0)
     cfg.chunking.max_chunk_size = int(chunk_max_size or 0)
     cfg.llm.enabled = bool(llm_enabled)
     cfg.llm.base_url = llm_base_url or ""
@@ -127,6 +156,37 @@ def _write_downloads(results, out_dir: str) -> list[str]:
     return paths
 
 
+def _write_chunks(results, out_dir: str) -> list[str]:
+    """Write one JSONL chunk file per result that carries RAG chunks.
+
+    Each line is one chunk: source / engine / offsets / metadata / text —
+    ready to feed straight into an embedding pipeline.
+    """
+    import json
+
+    paths: list[str] = []
+    for r in results:
+        if not r.chunks:
+            continue
+        target = os.path.join(out_dir, _download_name(r.source, "chunks.jsonl"))
+        with open(target, "w", encoding="utf-8") as f:
+            for c in r.chunks:
+                line = json.dumps(
+                    {
+                        "source": r.source,
+                        "engine": r.engine,
+                        "start_index": c.start_index,
+                        "end_index": c.end_index,
+                        "metadata": c.metadata,
+                        "text": c.text,
+                    },
+                    ensure_ascii=False,
+                )
+                f.write(line + "\n")
+        paths.append(target)
+    return paths
+
+
 def _on_convert(
     files,
     urls,
@@ -147,13 +207,6 @@ def _on_convert(
     llm_prompt,
 ):
     """Convert every uploaded file / URL via the controller (batch-safe)."""
-    from omnidoc import get_controller
-
-    cfg = _build_config(
-        output_fmt, enhanced_md, deep_first, allow_fallback,
-        chunking_enabled, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
-        offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt,
-    )
     # gr.File(type="filepath") hands the callback plain path *strings*;
     # type="file" hands FileData objects (use .path / .name). Handle both.
     sources: list[str] = []
@@ -168,22 +221,40 @@ def _on_convert(
     if not sources:
         return "等待上传文档或输入网页 URL…", "就绪", "—", None
 
+    issue = _validate_chunking(
+        chunking_enabled, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size
+    )
+    if issue:
+        return f"❌ 分块参数校验失败：{issue}", "校验失败", "—", None
+
+    from omnidoc import get_controller
+
+    cfg = _build_config(
+        output_fmt, enhanced_md, deep_first, allow_fallback,
+        chunking_enabled, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
+        offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt,
+    )
     out_dir = tempfile.mkdtemp(prefix="omnidoc_webui_")
     cfg.output_dir = out_dir
     results = get_controller().convert_batch(sources, cfg)
 
     md_parts, status_lines = [], []
+    total_chunks = 0
     for r in results:
         md_parts.append(f"## {r.source}\n\n{r.markdown}")
         line = f"{r.source} · 引擎={r.engine} · 状态={r.status.value}"
         if r.fallback_used:
             line += "（已降级）"
+        if r.chunks:
+            total_chunks += len(r.chunks)
+            line += f" · 分块={len(r.chunks)}"
         if r.warnings:
             line += " · ⚠️ " + " | ".join(r.warnings)
         status_lines.append(line)
     md = "\n\n---\n\n".join(md_parts)
-    downloads = _write_downloads(results, out_dir)
-    return md, "\n".join(status_lines), f"{len(results)} 个源", (downloads or None)
+    downloads = _write_downloads(results, out_dir) + _write_chunks(results, out_dir)
+    count = f"{len(results)} 个源" + (f" · {total_chunks} 个分块" if total_chunks else "")
+    return md, "\n".join(status_lines), count, (downloads or None)
 
 
 def build_app() -> gr.Blocks:
@@ -214,8 +285,8 @@ def build_app() -> gr.Blocks:
                     offline_mode = gr.Checkbox(False, label="离线模式（跳过 LLM 增强）")
                     chunking_enabled = gr.Checkbox(False, label="启用 RAG 分块")
                     chunk_strategy = gr.Radio(["fixed", "sentence", "markdown"], value="fixed", label="分块策略")
-                    chunk_size = gr.Number(512, label="chunk_size", precision=0)
-                    chunk_overlap = gr.Number(64, label="chunk_overlap", precision=0)
+                    chunk_size = gr.Number(512, label="chunk_size（fixed/sentence 块大小，字符）", precision=0)
+                    chunk_overlap = gr.Number(64, label="chunk_overlap（相邻块重叠，字符）", precision=0)
                     chunk_max_size = gr.Number(0, label="chunk_max_size（markdown 策略上限，0=不切分）", precision=0)
                 with gr.Accordion("🔗 LLM 图像描述（可选）", open=False):
                     llm_enabled = gr.Checkbox(False, label="使用 LLM 描述图片")
