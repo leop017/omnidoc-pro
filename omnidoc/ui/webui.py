@@ -107,7 +107,7 @@ def _download_name(source: str, ext: str) -> str:
         if "/" in raw:
             raw = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", raw)
     else:
-        raw = os.path.splitext(os.path.basename(source))[0]
+        raw = os.path.splitext(os.path.basename(source.replace("\\", "/")))[0]
     safe = re.sub(r"[^\w.-]+", "_", raw).strip("._-") or "untitled"
     return f"{safe}.{ext}"
 

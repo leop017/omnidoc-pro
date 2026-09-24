@@ -19,6 +19,14 @@ class TestDownloadName(unittest.TestCase):
     def test_file_path_uses_stem_without_extension(self):
         self.assertEqual(_download_name("C:\\docs\\报告.docx", "md"), "报告.md")
 
+    def test_windows_backslash_path_handled_on_any_platform(self):
+        self.assertEqual(
+            _download_name("C:\\docs\\report final.docx", "md"), "report_final.md"
+        )
+
+    def test_posix_path_uses_stem(self):
+        self.assertEqual(_download_name("/home/user/报告.docx", "md"), "报告.md")
+
     def test_url_uses_netloc_and_path(self):
         self.assertEqual(
             _download_name("https://example.com/a/b", "md"), "example.com_a_b.md"
