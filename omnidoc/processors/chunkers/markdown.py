@@ -25,22 +25,41 @@ def _heading_elements_from_text(text: str) -> list[Element]:
     ``document.elements`` empty (which is the current state of every engine),
     so the header-aware strategy degrades to text parsing instead of silently
     yielding zero chunks.
+
+    Each derived element records its exact byte offset in the source text
+    (``start`` / ``end`` in ``metadata``). That lets :meth:`MarkdownChunker.chunk`
+    slice the *original* text directly instead of re-rendring it with
+    normalized whitespace — so chunk offsets round-trip byte-for-byte even
+    when the source uses single newlines, indented code blocks or nested
+    lists (anything that does not match the ``"\\n\\n"`` join the renderer
+    would produce).
     """
     elements: list[Element] = []
     last = 0
     for m in _HEADING_RE.finditer(text):
         start = m.start()
         if start > last and text[last:start].strip():
-            # Keep the raw slice so `_render` output stays locatable in text.
-            elements.append(Element("paragraph", text[last:start].strip()))
-        # Record the heading level so `_render` can reconstruct the exact
-        # ``#`` prefix that exists in the source text (keeps chunk offsets
-        # accurate) while the chunk metadata header stays plain.
-        elements.append(Element("heading", m.group(2),
-                                metadata={"level": len(m.group(1))}))
+            elements.append(
+                Element(
+                    "paragraph",
+                    text[last:start],
+                    metadata={"start": last, "end": start},
+                )
+            )
+        # Record the heading level so chunk metadata stays plain, while the
+        # exact source offset is what the chunker slices on.
+        elements.append(
+            Element(
+                "heading",
+                m.group(2),
+                metadata={"level": len(m.group(1)), "start": start, "end": m.end()},
+            )
+        )
         last = m.end()
     if last < len(text) and text[last:].strip():
-        elements.append(Element("paragraph", text[last:].strip()))
+        elements.append(
+            Element("paragraph", text[last:], metadata={"start": last, "end": len(text)})
+        )
     return elements
 
 
@@ -80,21 +99,36 @@ class MarkdownChunker(ChunkerInterface):
                     groups.append((current_header, current_level, current_body))
                 current_header = elem.text
                 current_level = int(elem.metadata.get("level", 0) or 0)
-                current_body = []
+                current_body = [elem]
             else:
                 current_body.append(elem)
         if current_body or current_header:
             groups.append((current_header, current_level, current_body))
 
+        # Each group resolves to either an exact source span (elements carry
+        # contiguous ``start``/``end`` offsets, set by
+        # :func:`_heading_elements_from_text`) or a rendered-text fallback
+        # (engine elements without offsets). The source slice is preferred so
+        # ``doc.text[start:end] == chunk.text`` round-trips byte-for-byte even
+        # when the source uses single newlines / indentation that the
+        # ``"\\n\\n"`` join would normalize away.
         pre_split: list[tuple[str, str, int, list[str]]] = []
         cursor = 0
         for header, level, body in groups:
-            text = self._render(header, level, body)
-            start = doc.text.find(text[:40], cursor) if text else cursor
-            if start < 0:
-                start = cursor
-            end = start + len(text)
-            cursor = end
+            span = self._group_span(body)
+            if span is not None:
+                start, end = span
+                text = doc.text[start:end]
+            else:
+                # Engine-provided elements carry no source offsets; render and
+                # locate with ``find`` as before.
+                body_for_render = body[1:] if body and body[0].element_type == "heading" else body
+                text = self._render(header, level, body_for_render)
+                start = doc.text.find(text[:40], cursor) if text else cursor
+                if start < 0:
+                    start = cursor
+                end = start + len(text)
+                cursor = end
             if max_chunk_size and len(text) > max_chunk_size:
                 pieces = self._split_long(text, max_chunk_size)
             else:
@@ -106,6 +140,11 @@ class MarkdownChunker(ChunkerInterface):
         index = 0
         for text, header, start, pieces in pre_split:
             if len(pieces) > 1:
+                # O(k) prefix sums instead of re-summing ``pieces[:j]`` for
+                # every piece (O(k²) for heavily-split subtrees).
+                prefix = [start]
+                for piece in pieces:
+                    prefix.append(prefix[-1] + len(piece))
                 for j, piece in enumerate(pieces):
                     out.append(
                         make_chunk(
@@ -113,8 +152,8 @@ class MarkdownChunker(ChunkerInterface):
                             metadata={**doc.metadata, "header": header, "part": j},
                             index=index,
                             total=total,
-                            start=start + sum(len(p) for p in pieces[:j]),
-                            end=start + sum(len(p) for p in pieces[:j + 1]),
+                            start=prefix[j],
+                            end=prefix[j + 1],
                         )
                     )
                     index += 1
@@ -131,6 +170,29 @@ class MarkdownChunker(ChunkerInterface):
                 )
                 index += 1
         return out
+
+    @staticmethod
+    def _group_span(body: list[Element]) -> tuple[int, int] | None:
+        """Return ``(start, end)`` source offsets covering a group, or ``None``.
+
+        A group's elements must carry contiguous, monotonic ``start``/``end``
+        metadata (set by :func:`_heading_elements_from_text`) for the span to
+        be trustworthy. The group spans from the first element's ``start`` to
+        the last element's ``end``; blank runs between them are included so the
+        slice stays contiguous in the source.
+        """
+        spans: list[tuple[int, int]] = []
+        for elem in body:
+            s, e = elem.metadata.get("start"), elem.metadata.get("end")
+            if s is None or e is None:
+                return None
+            spans.append((s, e))
+        spans.sort()
+        for i in range(1, len(spans)):
+            if spans[i][0] < spans[i - 1][1]:
+                # Overlapping / non-monotonic spans — unsafe to slice.
+                return None
+        return spans[0][0], spans[-1][1]
 
     @staticmethod
     def _render(header: str, level: int, body: list[Element]) -> str:

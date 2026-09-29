@@ -35,6 +35,24 @@ _IMAGE_REF_RE = re.compile(r"!\[[^\]]*\]\([^)]*\)")
 _IMAGE_ALT_RE = re.compile(r"!\[([^\]]*)\]\(([^)]*)\)")
 
 
+def _bare_image_url(inner: str) -> str:
+    """Reduce the parenthesised group of an image reference to a bare URL.
+
+    ``_IMAGE_ALT_RE`` captures everything between ``( `` and the *first*
+    ``)`` — so a CommonMark title (``![alt](url "title")``) or a URL wrapped
+    in angle brackets (``![alt](<url with spaces>)``) leaks the title /
+    brackets into ``inner``. Feeding that straight to a vision API yields a
+    400 / unresolvable URL. Strip a trailing quoted title and the angle
+    brackets to recover the URL the API actually needs.
+    """
+    s = inner.strip()
+    if s.startswith("<") and s.endswith(">"):
+        s = s[1:-1].strip()
+    elif '"' in s or "'" in s:
+        s = re.sub(r"\s+[\"'].*[\"']$", "", s)
+    return s
+
+
 # ── client construction ────────────────────────────────────────
 
 def build_client(llm: dict[str, Any]) -> Optional[Any]:
@@ -146,11 +164,11 @@ def _describeable_image_refs(markdown: str) -> list[tuple[str, str]]:
     redundant caption. Empty-alt refs (the common webpage case) still get
     described, preserving the single-source-of-truth behaviour.
 
-    The *bare* url (``group(2)``) is what the vision API needs; the full
-    Markdown reference (``group(0)``) is what gets replaced in the output.
+    The *bare* url is what the vision API needs; the full Markdown
+    reference (``group(0)``) is what gets replaced in the output.
     """
     return [
-        (m.group(0), m.group(2))
+        (m.group(0), _bare_image_url(m.group(2)))
         for m in _IMAGE_ALT_RE.finditer(markdown or "")
         if not m.group(1).strip()
     ]

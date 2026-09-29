@@ -153,6 +153,39 @@ class TestDescribeableImageRefs(unittest.TestCase):
         self.assertEqual(url, "https://example.com/pic.png")
         self.assertFalse(url.startswith("!["))
 
+    def test_trailing_title_stripped_to_bare_url(self):
+        # Regression (M3): a CommonMark title ``![alt](url "title")`` used to
+        # leak the title into the URL fed to the vision API. The quoted title
+        # must be stripped so the API receives the bare URL. (A title that
+        # itself embeds a ``)`` is a separate, known limitation of
+        # ``_IMAGE_ALT_RE`` and is out of scope here.)
+        md = '![](https://example.com/pic.png "the title text")'
+        (full_ref, url) = _describeable_image_refs(md)[0]
+        self.assertEqual(url, "https://example.com/pic.png")
+
+    def test_single_quoted_title_stripped(self):
+        # single-quoted title is stripped to the bare URL; exercise the helper
+        # directly (a non-empty alt is not describable).
+        from omnidoc.ai.llm_service import _bare_image_url
+
+        self.assertEqual(_bare_image_url("https://example.com/pic.png 'single quoted'"),
+                         "https://example.com/pic.png")
+
+    def test_angle_bracket_url_unwrapped(self):
+        # Regression (M3): a URL wrapped in angle brackets
+        # ``![alt](<url with spaces>)`` must be unwrapped to the bare URL.
+        refs = _describeable_image_refs("![x](https://example.com/a) "
+                                        "![]( <https://example.com/sp ace.png> )")
+        # The empty-alt angle-bracket ref resolves to the unwrapped URL.
+        self.assertEqual(refs[0][1], "https://example.com/sp ace.png")
+
+    def test_bare_image_url_no_title_unchanged(self):
+        # A plain bare URL (no title, no brackets) passes through untouched.
+        from omnidoc.ai.llm_service import _bare_image_url
+
+        self.assertEqual(_bare_image_url("https://example.com/p.png"),
+                         "https://example.com/p.png")
+
 
 class TestApplyDescriptions(unittest.TestCase):
 

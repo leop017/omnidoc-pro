@@ -240,6 +240,43 @@ class TestMarkdownChunker(unittest.TestCase):
         for c in chunks:
             self.assertEqual(c.metadata["chunk_count"], len(chunks))
 
+    def test_offsets_roundtrip_with_indented_content(self):
+        # Regression (M1): chunk text with *leading* indentation (indented
+        # code blocks / nested lists) must keep its offsets accurate. The old
+        # code used a plain .strip() when deriving paragraph elements from
+        # text, dropping the indentation so doc.text.find missed the chunk
+        # and every later chunk's offsets drifted. Now .rstrip() is used so
+        # _render output stays locatable byte-for-byte.
+        md = (
+            "# 章节A\n\n"
+            "    code line 1\n"
+            "    code line 2\n\n"
+            "## 章节B\n\n"
+            "- item one\n"
+            "  - nested\n\n"
+            "plain text\n"
+        )
+        doc = Document(text=md)  # engines populate text, never elements
+        chunks = MarkdownChunker().chunk(doc, {})
+        self.assertGreaterEqual(len(chunks), 2)
+        for c in chunks:
+            self.assertEqual(md[c.start_index : c.end_index], c.text)
+            self.assertGreaterEqual(c.end_index, c.start_index)
+
+    def test_indented_split_offsets_stay_contiguous(self):
+        # Regression (M1): a long indented subtree split by max_chunk_size
+        # uses the O(k) prefix-sum path; each piece's start/end must still
+        # round-trip through the source slice and remain contiguous.
+        indented = "    " + ("x" * 200)
+        md = "# H\n\n" + indented + "\n\ntail."
+        doc = Document(text=md)
+        chunks = MarkdownChunker().chunk(doc, {"max_chunk_size": 50})
+        self.assertGreater(len(chunks), 1)
+        for i, c in enumerate(chunks):
+            self.assertEqual(md[c.start_index : c.end_index], c.text)
+            if i > 0:
+                self.assertLessEqual(c.start_index, chunks[i - 1].end_index)
+
 
 if __name__ == "__main__":
     unittest.main()

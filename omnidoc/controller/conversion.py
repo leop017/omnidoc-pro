@@ -79,20 +79,29 @@ class ConversionController:
 
     @staticmethod
     def _sync_written_files(result: DocumentResult) -> None:
-        """Re-write engine-written ``.md`` files with the cleaned Markdown.
+        """Re-write the engine-written ``.md`` file with the cleaned Markdown.
 
         The deep engine serializes and writes *before* the pipeline runs, so
         its file holds the raw conversion output while the preview shows the
         cleaned content. Writing the cleaned content back keeps the two
         consistent. Format exports (.html/.json) keep the raw serialization.
+
+        Only a *single* ``.md`` output path is synced: it is the whole
+        document, so ``result.markdown`` is its exact cleaned content.
+        Multi-sheet Excel results carry one file *per sheet* — each holds
+        that sheet's serialization while ``result.markdown`` is the join of
+        all sheets, so writing it back would overwrite every per-sheet file
+        with the full joined content and destroy the sheet-level output.
+        Those files keep their (correct) raw content instead.
         """
         if not result.output_paths or not result.markdown:
             return
         from pathlib import Path
 
-        for path in result.output_paths:
-            if Path(path).suffix.lower() == ".md":
-                Path(path).write_text(result.markdown, encoding="utf-8")
+        md_paths = [p for p in result.output_paths if Path(p).suffix.lower() == ".md"]
+        if len(md_paths) != 1:
+            return
+        Path(md_paths[0]).write_text(result.markdown, encoding="utf-8")
 
     # ── engine selection with graceful degradation ─────────────
 

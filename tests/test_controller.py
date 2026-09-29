@@ -9,6 +9,8 @@ cleaner / chunker / LLM). This pins down the graceful-degradation contract
 batch" guarantee.
 """
 
+import os
+import tempfile
 import unittest
 
 from omnidoc.controller.conversion import ConversionController, _to_config_dict
@@ -212,6 +214,46 @@ class TestToConfigDict(unittest.TestCase):
         cfg = _to_config_dict(o)
         self.assertEqual(cfg["deep_first"], False)
         self.assertEqual(cfg["allow_fallback"], False)
+
+
+class TestSyncWrittenFiles(unittest.TestCase):
+    """_sync_written_files rewrites the engine's .md file with the cleaned
+    Markdown — but only when there is *exactly one* .md output path.
+    Multi-sheet Excel results carry one file per sheet, so overwriting them
+    with the joined result.markdown would destroy the sheet-level output."""
+
+    def _write(self, path, content):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(content)
+        return path
+
+    def test_single_md_file_synced_with_cleaned_markdown(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self._write(os.path.join(d, "doc.md"), "RAW ENGINE OUTPUT")
+            r = DocumentResult(source="s.docx", engine="deep", markdown="CLEANED")
+            r.output_paths = [path]
+            ConversionController._sync_written_files(r)
+            with open(path, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "CLEANED")
+
+    def test_multi_md_files_not_synced(self):
+        """Two per-sheet .md files keep their own content (not joined)."""
+        with tempfile.TemporaryDirectory() as d:
+            p1 = self._write(os.path.join(d, "report_Sales.md"), "SALES ONLY")
+            p2 = self._write(os.path.join(d, "report_Costs.md"), "COSTS ONLY")
+            r = DocumentResult(source="report.xlsx", engine="deep",
+                               markdown="SALES ONLY\n\nCOSTS ONLY")
+            r.output_paths = [p1, p2]
+            ConversionController._sync_written_files(r)
+            with open(p1, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "SALES ONLY")
+            with open(p2, encoding="utf-8") as f:
+                self.assertEqual(f.read(), "COSTS ONLY")
+
+    def test_no_output_paths_noop(self):
+        r = DocumentResult(source="s.md", engine="deep", markdown="CLEANED")
+        ConversionController._sync_written_files(r)  # must not raise
+        self.assertEqual(r.output_paths, [])
 
 
 if __name__ == "__main__":
