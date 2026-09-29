@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Optional
 
 from omnidoc import get_controller
 from omnidoc.ai import test_llm_connection
@@ -81,6 +80,25 @@ def _build_config(
     return cfg
 
 
+def _unique_cli_name(stem: str, ext: str, used: set[str]) -> str:
+    """Return ``f"{stem}.{ext}"`` unique within the batch.
+
+    The numeric suffix lands on the stem (``report_1.chunks.jsonl``), since
+    ``ext`` (e.g. ``chunks.jsonl``) may itself contain dots and must stay
+    intact.
+    """
+    base = f"{stem}.{ext}"
+    if base not in used:
+        used.add(base)
+        return base
+    n = 1
+    while f"{stem}_{n}.{ext}" in used:
+        n += 1
+    unique = f"{stem}_{n}.{ext}"
+    used.add(unique)
+    return unique
+
+
 def _render(result, show_chunks: bool) -> str:
     """Human-readable rendering of a single :class:`DocumentResult`."""
     title = f"━━━ {result.source} "
@@ -88,7 +106,8 @@ def _render(result, show_chunks: bool) -> str:
     status = result.status.value
     if result.fallback_used:
         status += "（已降级）"
-    lines.append(f"引擎={result.engine} · 状态={status} · 耗时={result.elapsed:.2f}s")
+    chunk_info = f" · 分块={len(result.chunks)}" if result.chunks else ""
+    lines.append(f"引擎={result.engine} · 状态={status}{chunk_info} · 耗时={result.elapsed:.2f}s")
     for w in result.warnings:
         lines.append(f"⚠️ {w}")
     for e in result.errors:
@@ -114,8 +133,8 @@ def cmd_convert(
     no_fallback: bool = typer.Option(False, "--no-fallback", help="关闭深度引擎失败时降级到 MarkItDown"),
     chunk: bool = typer.Option(False, "--chunk", help="启用 RAG 分块"),
     chunk_strategy: str = typer.Option("fixed", "--chunk-strategy", help="fixed/sentence/markdown"),
-    chunk_size: int = typer.Option(512, "--chunk-size", help="分块大小（字符）"),
-    chunk_overlap: int = typer.Option(64, "--chunk-overlap", help="分块重叠（字符）"),
+    chunk_size: int = typer.Option(512, "--chunk-size", help="分块大小（字符，fixed/sentence）"),
+    chunk_overlap: int = typer.Option(64, "--chunk-overlap", help="分块重叠（字符，fixed/sentence）"),
     chunk_max_size: int = typer.Option(0, "--chunk-max-size", help="markdown 策略下单子树最大字符数，0=不切分"),
     offline: bool = typer.Option(False, "--offline", help="离线模式，跳过 LLM 增强"),
     llm: bool = typer.Option(False, "--llm", help="启用 LLM 图像描述"),
@@ -123,6 +142,8 @@ def cmd_convert(
     llm_api_key: str = typer.Option("", "--llm-api-key", help="LLM API Key（或 env OMNIDOC_LLM_API_KEY）"),
     llm_model: str = typer.Option("", "--llm-model", help="LLM 模型名（或 env OMNIDOC_LLM_MODEL）"),
     llm_prompt: str = typer.Option("", "--llm-prompt", help="自定义图像描述 Prompt"),
+    output_dir: str = typer.Option("", "--output-dir", help="结果文件落地目录（深度引擎写盘）"),
+    export_chunks: bool = typer.Option(False, "--export-chunks", help="把分块结果导出为 JSONL 文件"),
     json_out: bool = typer.Option(False, "--json", help="以 JSON 输出全部结果"),
     show_chunks: bool = typer.Option(False, "--show-chunks", help="同时打印分块内容"),
 ) -> None:
@@ -132,7 +153,29 @@ def cmd_convert(
         chunk, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
         offline, llm, llm_base_url, llm_api_key, llm_model, llm_prompt,
     )
+    issues = cfg.chunking.validate_issues()
+    if issues:
+        typer.echo(f"❌ 分块参数校验失败：{'；'.join(issues)}")
+        raise typer.Exit(code=2)
+    if output_dir:
+        cfg.output_dir = output_dir
+        os.makedirs(output_dir, exist_ok=True)
     results = get_controller().convert_batch(list(sources), cfg)
+    if export_chunks:
+        from omnidoc.core.document import export_chunks_jsonl, safe_download_stem
+
+        used: set[str] = set()
+        for r in results:
+            if not r.chunks:
+                continue
+            for p in r.output_paths:
+                used.add(os.path.basename(p))
+            path = os.path.join(
+                output_dir or ".",
+                _unique_cli_name(safe_download_stem(r.source), "chunks.jsonl", used),
+            )
+            export_chunks_jsonl(r, path)
+            typer.echo(f"已导出分块：{path}")
     if json_out:
         typer.echo(json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
     else:
@@ -195,18 +238,17 @@ else:
     app = None  # type: ignore[assignment]
 
 
-def main() -> Optional[None]:
+def main() -> None:
     """Console-script entry point (``omnidoc`` → ``omnidoc.ui.cli:main``)."""
     for _stream in (sys.stdout, sys.stderr):
         try:
-            _stream.reconfigure(errors="replace")
+            _stream.reconfigure(errors="replace")  # type: ignore[union-attr]
         except Exception:
             pass
     if app is None:
         print("未检测到 Typer。请安装 CLI 依赖：pip install 'omnidoc-pro[cli]'")
         raise SystemExit(1)
     app()
-    return None
 
 
 if __name__ == "__main__":

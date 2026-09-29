@@ -103,6 +103,28 @@ class TestGetRouter(unittest.TestCase):
         self.assertIsInstance(router.deep, DeepEngine)
         self.assertIsInstance(router.breadth, MarkItDownEngine)
 
+    def test_real_engines_depth_format_has_genuine_fallback(self):
+        # Regression: with the real engines the depth formats (.docx/.xls/
+        # .xlsx) must get a genuine Deep -> MarkItDown fallback chain, and
+        # deep_first=False must really hand them to MarkItDown.
+        router = get_router()
+        chain = router.fallback_chain("a.docx", {})
+        self.assertEqual([e.name for e in chain], ["deep", "markitdown"])
+        chain_no_first = router.fallback_chain("a.docx", {"deep_first": False})
+        self.assertEqual([e.name for e in chain_no_first], ["markitdown"])
+
+    def test_real_engines_legacy_doc_has_no_fallback(self):
+        # MarkItDown has no .doc converter, so .doc gets Deep only.
+        router = get_router()
+        chain = router.fallback_chain("a.doc", {})
+        self.assertEqual([e.name for e in chain], ["deep"])
+
+    def test_real_engines_select_respects_deep_first(self):
+        router = get_router()
+        self.assertIs(router.select("a.docx", {}), router.deep)
+        self.assertIs(router.select("a.docx", {"deep_first": False}), router.breadth)
+        self.assertIs(router.select("a.pdf", {}), router.breadth)
+
     def test_explicit_injection(self):
         deep, breadth = _Stub("deep", _ALWAYS), _Stub("breadth", _ALWAYS)
         router = get_router(deep=deep, breadth=breadth)

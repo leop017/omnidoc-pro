@@ -3,7 +3,8 @@
 The download feature is presentation-layer serving: engine-written files
 (``output_paths``) are reused as-is, and results without them (MarkItDown /
 URL fetch) get one UTF-8 Markdown file each, named after the source path /
-URL.
+URL. Batch-scoped name dedup keeps same-stem sources from overwriting each
+other's files.
 """
 
 import json
@@ -11,42 +12,52 @@ import os
 import tempfile
 import unittest
 
-from omnidoc.core.document import Chunk, ConversionStatus, DocumentResult
-from omnidoc.ui.webui import _download_name, _validate_chunking, _write_chunks, _write_downloads
+from omnidoc.core.document import (
+    Chunk,
+    ConversionStatus,
+    DocumentResult,
+    safe_download_name,
+)
+from omnidoc.ui.webui import (
+    _unique_download_name,
+    _validate_chunking,
+    _write_chunks,
+    _write_downloads,
+)
 
 
 class TestDownloadName(unittest.TestCase):
 
     def test_file_path_uses_stem_without_extension(self):
-        self.assertEqual(_download_name("C:\\docs\\报告.docx", "md"), "报告.md")
+        self.assertEqual(safe_download_name("C:\\docs\\报告.docx", "md"), "报告.md")
 
     def test_windows_backslash_path_handled_on_any_platform(self):
         self.assertEqual(
-            _download_name("C:\\docs\\report final.docx", "md"), "report_final.md"
+            safe_download_name("C:\\docs\\report final.docx", "md"), "report_final.md"
         )
 
     def test_posix_path_uses_stem(self):
-        self.assertEqual(_download_name("/home/user/报告.docx", "md"), "报告.md")
+        self.assertEqual(safe_download_name("/home/user/报告.docx", "md"), "报告.md")
 
     def test_url_uses_netloc_and_path(self):
         self.assertEqual(
-            _download_name("https://example.com/a/b", "md"), "example.com_a_b.md"
+            safe_download_name("https://example.com/a/b", "md"), "example.com_a_b.md"
         )
 
     def test_bare_url_keeps_domain(self):
         self.assertEqual(
-            _download_name("https://example.com/", "md"), "example.com.md"
+            safe_download_name("https://example.com/", "md"), "example.com.md"
         )
 
     def test_url_file_extension_stripped(self):
         self.assertEqual(
-            _download_name("https://example.com/page.html", "md"),
+            safe_download_name("https://example.com/page.html", "md"),
             "example.com_page.md",
         )
 
     def test_invalid_chars_replaced_with_underscore(self):
         for raw in ("a:b|c", "a/b\\c", 'a"b'):
-            result = _download_name(raw, "md")
+            result = safe_download_name(raw, "md")
             self.assertNotIn(":", result)
             self.assertNotIn("|", result)
             self.assertNotIn("/", result)
@@ -55,13 +66,44 @@ class TestDownloadName(unittest.TestCase):
             self.assertTrue(result.endswith(".md"))
 
     def test_empty_falls_back_to_untitled(self):
-        self.assertEqual(_download_name("", "md"), "untitled.md")
+        self.assertEqual(safe_download_name("", "md"), "untitled.md")
 
     def test_cjk_preserved(self):
-        self.assertEqual(_download_name("报告", "md"), "报告.md")
+        self.assertEqual(safe_download_name("报告", "md"), "报告.md")
 
     def test_extension_appended(self):
-        self.assertEqual(_download_name("report_2024", "json"), "report_2024.json")
+        self.assertEqual(safe_download_name("report_2024", "json"), "report_2024.json")
+
+
+class TestUniqueDownloadName(unittest.TestCase):
+
+    def test_first_name_claimed_unchanged(self):
+        used: set[str] = set()
+        self.assertEqual(_unique_download_name("a/report.docx", "md", used), "report.md")
+        self.assertEqual(used, {"report.md"})
+
+    def test_same_stem_sources_get_unique_names(self):
+        used: set[str] = set()
+        first = _unique_download_name("a/report.docx", "md", used)
+        second = _unique_download_name("b/report.docx", "md", used)
+        self.assertEqual(first, "report.md")
+        self.assertEqual(second, "report_1.md")
+        self.assertNotEqual(first, second)
+
+    def test_engine_written_names_reserved_before_breadth_writes(self):
+        # A deep-engine file report_doc.md is registered first; a breadth
+        # result whose derived name would collide gets a numeric suffix.
+        used: set[str] = {"report_doc.md"}
+        name = _unique_download_name("a/report_doc.md", "md", used)
+        self.assertNotEqual(name, "report_doc.md")
+        self.assertTrue(name.startswith("report_doc_"))
+
+    def test_chunks_files_deduped_against_each_other(self):
+        used: set[str] = set()
+        first = _unique_download_name("a/report.docx", "chunks.jsonl", used)
+        second = _unique_download_name("b/report.docx", "chunks.jsonl", used)
+        self.assertEqual(first, "report.chunks.jsonl")
+        self.assertEqual(second, "report_1.chunks.jsonl")
 
 
 class TestWriteDownloads(unittest.TestCase):
@@ -71,14 +113,14 @@ class TestWriteDownloads(unittest.TestCase):
         r.markdown = "# hi"
         r.output_paths = [os.path.join(tempfile.gettempdir(), "engine_out.md")]
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        self.assertEqual(_write_downloads([r], out_dir), r.output_paths)
+        self.assertEqual(_write_downloads([r], out_dir, set()), r.output_paths)
         self.assertEqual(os.listdir(out_dir), [])
 
     def test_markdown_result_gets_one_utf8_file(self):
         r = DocumentResult(source="https://example.com/page", engine="markitdown")
         r.markdown = "# hello world"
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        paths = _write_downloads([r], out_dir)
+        paths = _write_downloads([r], out_dir, set())
         self.assertEqual(len(paths), 1)
         self.assertTrue(paths[0].startswith(out_dir))
         self.assertTrue(paths[0].endswith("example.com_page.md"))
@@ -88,7 +130,7 @@ class TestWriteDownloads(unittest.TestCase):
     def test_failed_result_skipped(self):
         r = DocumentResult(source="x.docx", status=ConversionStatus.ERROR)
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        self.assertEqual(_write_downloads([r], out_dir), [])
+        self.assertEqual(_write_downloads([r], out_dir, set()), [])
         self.assertEqual(os.listdir(out_dir), [])
 
     def test_batch_mixed_sources(self):
@@ -99,10 +141,26 @@ class TestWriteDownloads(unittest.TestCase):
         web.markdown = "# b"
         failed = DocumentResult(source="c.docx", status=ConversionStatus.ERROR)
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        paths = _write_downloads([deep, web, failed], out_dir)
+        paths = _write_downloads([deep, web, failed], out_dir, set())
         self.assertEqual(len(paths), 2)
         self.assertEqual(paths[0], deep.output_paths[0])
         self.assertTrue(paths[1].endswith("example.com.md"))
+
+    def test_same_stem_sources_not_overwritten(self):
+        # H3 regression: two same-stem sources each keep their own content.
+        first = DocumentResult(source="a/report.docx", engine="markitdown")
+        first.markdown = "# first"
+        second = DocumentResult(source="b/report.docx", engine="markitdown")
+        second.markdown = "# second"
+        out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
+        used: set[str] = set()
+        paths = _write_downloads([first, second], out_dir, used)
+        self.assertEqual(len(paths), 2)
+        self.assertNotEqual(paths[0], paths[1])
+        with open(paths[0], encoding="utf-8") as f:
+            self.assertEqual(f.read(), "# first")
+        with open(paths[1], encoding="utf-8") as f:
+            self.assertEqual(f.read(), "# second")
 
 
 class TestValidateChunking(unittest.TestCase):
@@ -157,7 +215,7 @@ class TestWriteChunks(unittest.TestCase):
         r = DocumentResult(source="a.docx", engine="deep")
         r.chunks = [self._chunk("hello", 0, 5), self._chunk("world", 6, 11)]
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        paths = _write_chunks([r], out_dir)
+        paths = _write_chunks([r], out_dir, set())
         self.assertEqual(len(paths), 1)
         self.assertTrue(paths[0].endswith("a.chunks.jsonl"))
         with open(paths[0], encoding="utf-8") as f:
@@ -173,7 +231,7 @@ class TestWriteChunks(unittest.TestCase):
     def test_result_without_chunks_skipped(self):
         r = DocumentResult(source="x.docx", status=ConversionStatus.ERROR)
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        self.assertEqual(_write_chunks([r], out_dir), [])
+        self.assertEqual(_write_chunks([r], out_dir, set()), [])
         self.assertEqual(os.listdir(out_dir), [])
 
     def test_batch_mixed_sources(self):
@@ -182,7 +240,7 @@ class TestWriteChunks(unittest.TestCase):
         plain = DocumentResult(source="https://example.com/", engine="markitdown")
         plain.markdown = "# b"
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        paths = _write_chunks([chunked, plain], out_dir)
+        paths = _write_chunks([chunked, plain], out_dir, set())
         self.assertEqual(len(paths), 1)
         self.assertTrue(paths[0].endswith("a.chunks.jsonl"))
 
@@ -190,8 +248,19 @@ class TestWriteChunks(unittest.TestCase):
         r = DocumentResult(source="报告.docx", engine="deep")
         r.chunks = [self._chunk("内容", 0, 2)]
         out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
-        paths = _write_chunks([r], out_dir)
+        paths = _write_chunks([r], out_dir, set())
         self.assertTrue(paths[0].endswith("报告.chunks.jsonl"))
+
+    def test_same_stem_sources_get_unique_chunk_files(self):
+        first = DocumentResult(source="a/report.docx", engine="markitdown")
+        first.chunks = [self._chunk("one", 0, 3)]
+        second = DocumentResult(source="b/report.docx", engine="markitdown")
+        second.chunks = [self._chunk("two", 0, 3)]
+        out_dir = tempfile.mkdtemp(prefix="omnidoc_test_")
+        used: set[str] = set()
+        paths = _write_chunks([first, second], out_dir, used)
+        self.assertEqual(len(paths), 2)
+        self.assertNotEqual(paths[0], paths[1])
 
 
 if __name__ == "__main__":

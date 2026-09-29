@@ -32,6 +32,11 @@ def _importable(mod: str) -> bool:
     return importlib.util.find_spec(mod) is not None
 
 
+_MISSING_DOC_MSG = (
+    "Legacy .doc 支持需要 textract：请安装 omnidoc-pro[legacy-doc]"
+)
+
+
 class DeepEngine(EngineInterface):
     name = "deep"
 
@@ -46,6 +51,8 @@ class DeepEngine(EngineInterface):
     # ── EngineInterface: in-memory Markdown ────────────────────
 
     def convert(self, source: str, config: dict[str, Any]) -> str:
+        if _ext(source) == ".doc" and not _importable("textract"):
+            raise ValueError(_MISSING_DOC_MSG)
         output_fmt = config.get("output_fmt", "md")
         enhanced = bool(config.get("enhanced_md", False))
         rules = config.get("cleaning_rules")
@@ -81,6 +88,13 @@ class DeepEngine(EngineInterface):
         output_dir = config.get("output_dir")
 
         ext = _ext(source)
+        if ext == ".doc" and not _importable("textract"):
+            result = DocumentResult(
+                source=source, source_format="doc", engine=self.name,
+                status=ConversionStatus.ERROR,
+            )
+            result.add_error(_MISSING_DOC_MSG)
+            return result
         try:
             if ext == ".docx":
                 from omnidoc.engines.deep import WordBuilder
@@ -142,10 +156,11 @@ class DeepEngine(EngineInterface):
         result.document = Document(text=serialized)
         result.metadata = dict(built.get("metadata", {}))
         if output_dir:
-            result.output_paths = self._write(
-                [os.path.join(output_dir, f"{built['stem']}_{built.get('suffix', 'doc')}.{output_fmt}")],
-                [serialized],
+            name = self._claim_name(
+                f"{built['stem']}_{built.get('suffix', 'doc')}.{output_fmt}",
+                config.get("_used_output_names"),
             )
+            result.output_paths = self._write([os.path.join(output_dir, name)], [serialized])
         return result
 
     def _result_multi(
@@ -174,12 +189,38 @@ class DeepEngine(EngineInterface):
         for sn, err in built["errors"]:
             result.add_warning(f"工作表 {sn} 转换失败： {err}")
         if output_dir:
+            used = config.get("_used_output_names")
             paths = [
-                os.path.join(output_dir, f"{built['stem']}_{s['sn_clean']}.{output_fmt}")
+                os.path.join(
+                    output_dir,
+                    self._claim_name(f"{built['stem']}_{s['sn_clean']}.{output_fmt}", used),
+                )
                 for s in built["sheets"]
             ]
             result.output_paths = self._write(paths, serialized)
         return result
+
+    @staticmethod
+    def _claim_name(candidate: str, used: Optional[set]) -> str:
+        """Return ``candidate`` (or a numeric-suffixed variant) and claim it.
+
+        Two same-stem sources in one batch would otherwise write the same
+        output file, silently overwriting the first result. ``used`` is the
+        batch-scoped registry seeded by the controller (``None`` disables
+        claiming for single-source conversions).
+        """
+        if used is None:
+            return candidate
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        stem, ext = os.path.splitext(candidate)
+        n = 1
+        while f"{stem}_{n}{ext}" in used:
+            n += 1
+        unique = f"{stem}_{n}{ext}"
+        used.add(unique)
+        return unique
 
     @staticmethod
     def _write(paths: list[str], contents: list[str]) -> list[str]:

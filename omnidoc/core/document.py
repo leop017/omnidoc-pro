@@ -133,3 +133,63 @@ class DocumentResult:
             for c in self.chunks
         ]
         return payload
+
+
+# ── shared serialization helpers (importable without UI deps) ────
+
+def safe_download_stem(source: str) -> str:
+    """Sanitized stem of a source path or URL (no extension/suffix).
+
+    Non-ASCII characters are preserved; illegal filename characters are
+    replaced with ``_``. Returns ``safe`` (never empty).
+    """
+    import os
+    import re
+    from urllib.parse import urlparse
+
+    if source.startswith(("http://", "https://")):
+        parsed = urlparse(source)
+        raw = (parsed.netloc + parsed.path).rstrip("/")
+        if "/" in raw:
+            raw = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", raw)
+    else:
+        raw = os.path.splitext(os.path.basename(source.replace("\\", "/")))[0]
+    return re.sub(r"[^\w.-]+", "_", raw).strip("._-") or "untitled"
+
+
+def safe_download_name(source: str, ext: str = "md") -> str:
+    """Derive a safe download filename from a source path or URL.
+
+    Returns ``safe.{ext}`` where ``safe`` comes from
+    :func:`safe_download_stem`; ``ext`` may itself contain dots (e.g.
+    ``chunks.jsonl``) and is appended as-is.
+    """
+    return f"{safe_download_stem(source)}.{ext}"
+
+
+def export_chunks_jsonl(result: DocumentResult, path: str) -> str:
+    """Write one JSONL chunk file for a result that carries RAG chunks.
+
+    Each line is one chunk: source / engine / offsets / metadata / text —
+    ready to feed straight into an embedding pipeline. Shared by the WebUI
+    download area and the CLI ``--export-chunks`` flag.
+    """
+    import json
+    import os
+
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        for c in result.chunks:
+            line = json.dumps(
+                {
+                    "source": result.source,
+                    "engine": result.engine,
+                    "start_index": c.start_index,
+                    "end_index": c.end_index,
+                    "metadata": c.metadata,
+                    "text": c.text,
+                },
+                ensure_ascii=False,
+            )
+            f.write(line + "\n")
+    return path

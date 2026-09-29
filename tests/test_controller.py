@@ -41,6 +41,26 @@ class _Engine:
         return DocumentResult(source=source, engine=self.name, markdown=self._markdown or "")
 
 
+class _PlaceholderEngine:
+    """Mimics the real markitdown engine: a failure returns an ERROR result
+    whose ``markdown`` still carries the placeholder text (the real engine
+    writes ``## ⚠️ ...`` into the markdown field before returning)."""
+
+    name = "breadth"
+
+    def supports(self, source):
+        return True
+
+    def available(self):
+        return True
+
+    def convert_document(self, source, cfg):
+        r = DocumentResult(source=source, engine=self.name, status=ConversionStatus.ERROR)
+        r.add_error("ValueError: nope")
+        r.markdown = f"## ⚠️ {source}\n\n_ValueError: nope_\n"
+        return r
+
+
 class _Pipeline:
     def __init__(self):
         self.calls = 0
@@ -102,6 +122,18 @@ class TestSuccessAndFallback(unittest.TestCase):
         self.assertEqual(res.engine, "breadth")  # the last one tried
         self.assertTrue(res.errors)
         self.assertIn("RuntimeError", res.errors[-1])
+
+    def test_placeholder_markdown_error_not_misjudged_as_degraded(self):
+        # M1 regression: the real engines fill placeholder Markdown into
+        # their error results. Treating non-empty Markdown as a fallback win
+        # would flip the status to DEGRADED and report success=True (CLI
+        # exit code 0) even though every engine failed.
+        deep = _Engine("deep", _ALWAYS, exc=RuntimeError("boom"))
+        ctrl, _ = _controller(deep, _PlaceholderEngine())
+        res = ctrl.convert("x.docx", {})
+        self.assertIs(res.status, ConversionStatus.ERROR)
+        self.assertFalse(res.success)
+        self.assertFalse(res.fallback_used)
 
 
 class TestAllowFallbackTruncation(unittest.TestCase):

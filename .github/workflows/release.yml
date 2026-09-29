@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Tag to release (e.g. v0.1.1)"
+        description: "Tag to release (e.g. v0.2.0)"
         required: true
-        default: "v0.1.3"
+        default: "v0.2.0"
 
 permissions:
   contents: write
@@ -143,15 +143,19 @@ jobs:
         id: notes
         shell: bash
         run: |
-          version="${GITHUB_REF_NAME#v}"
+          # workflow_dispatch: use the chosen tag input; tag push: GITHUB_REF_NAME
+          ref="${{ inputs.ref }}"
+          if [ -z "$ref" ]; then
+            ref="${GITHUB_REF_NAME}"
+          fi
+          version="${ref#v}"
           core="${version%%-*}"
           notes_file="RELEASE_NOTES/${core}.md"
+          echo "version=${core}" >> "$GITHUB_OUTPUT"
           if [[ -f "$notes_file" ]]; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "version=${core}" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "version=${core}" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Create GitHub Release
@@ -162,6 +166,6 @@ jobs:
           generate_release_notes: false
           body: |
             ## 版本 ${{ steps.notes.outputs.version }}
-            详细更新日志请见 `RELEASE_NOTES/${{ steps.notes.outputs.version }}.md`。
+            ${{ steps.notes.outputs.exists == 'true' && format('详细更新日志请见 `RELEASE_NOTES/{0}.md`。', steps.notes.outputs.version) || '本版本无独立更新日志文件。' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

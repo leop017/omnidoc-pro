@@ -80,7 +80,7 @@ def test_llm_connection(llm: dict[str, Any]) -> str:
         elapsed = time.perf_counter() - t0
         choice = resp.choices[0] if resp.choices else None
         return f"✅ 连接成功 · {elapsed:.1f}s · 模型: {model}" + (
-            f"\n响应: {choice.message.content.strip()[:80]}" if choice else ""
+            f"\n响应: {(choice.message.content or '').strip()[:80]}" if choice else ""
         )
     except Exception as e:  # noqa: BLE001 - probe never raises
         msg = f"{type(e).__name__}: {e}"
@@ -91,22 +91,28 @@ def test_llm_connection(llm: dict[str, Any]) -> str:
 
 # ── bounded image description (System Rule #4) ─────────────────
 
-def _to_data_uri(ref: str) -> str:
-    """Convert a local image path to a ``data:`` URI the vision API can read."""
-    if ref.startswith("data:"):
-        return ref
-    if os.path.exists(ref):
-        mime = mimetypes.guess_type(ref)[0] or "image/png"
-        with open(ref, "rb") as f:
+def _to_data_uri(url: str) -> str:
+    """Return a vision-API-readable image source for ``url``.
+
+    ``data:`` URIs and http(s) URLs pass through unchanged (the API reads
+    both directly); local paths are inlined as ``data:`` URIs. The *bare*
+    URL is required here — a full Markdown reference like ``![alt](url)``
+    is not a valid ``image_url`` value and the call would fail.
+    """
+    if url.startswith("data:"):
+        return url
+    if os.path.exists(url):
+        mime = mimetypes.guess_type(url)[0] or "image/png"
+        with open(url, "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         return f"data:{mime};base64,{b64}"
-    return ref  # already an http(s) URL, or unresolvable -> let the call fail
+    return url  # http(s) URL -> the API fetches it; unresolvable -> the call fails
 
 
-def _describe_one(client: Any, llm: dict[str, Any], ref: str) -> str:
+def _describe_one(client: Any, llm: dict[str, Any], url: str) -> str:
     """Blocking description of a single image (runs inside a worker thread)."""
     prompt = llm.get("prompt") or "请简洁描述这张图片的内容。"
-    image_url = _to_data_uri(ref)
+    image_url = _to_data_uri(url)
     messages = [
         {
             "role": "user",
@@ -130,8 +136,8 @@ def extract_image_refs(markdown: str) -> list[str]:
     return _IMAGE_REF_RE.findall(markdown or "")
 
 
-def _describeable_image_refs(markdown: str) -> list[str]:
-    """Return image refs whose alt text is *empty*, in document order.
+def _describeable_image_refs(markdown: str) -> list[tuple[str, str]]:
+    """Return ``(full_ref, url)`` pairs whose alt text is *empty*, in order.
 
     These are the only refs worth an LLM description. A non-empty alt
     usually means the producing engine already embedded a description in it
@@ -139,34 +145,50 @@ def _describeable_image_refs(markdown: str) -> list[str]:
     client), so re-describing would duplicate the LLM call and add a second,
     redundant caption. Empty-alt refs (the common webpage case) still get
     described, preserving the single-source-of-truth behaviour.
+
+    The *bare* url (``group(2)``) is what the vision API needs; the full
+    Markdown reference (``group(0)``) is what gets replaced in the output.
     """
     return [
-        m.group(0)
+        (m.group(0), m.group(2))
         for m in _IMAGE_ALT_RE.finditer(markdown or "")
         if not m.group(1).strip()
     ]
 
 
-def _run_bounded(client: Any, llm: dict[str, Any], refs: list[str]) -> list[str]:
+def _run_bounded(
+    client: Any, llm: dict[str, Any], refs: list[tuple[str, str]]
+) -> tuple[list[str], list[str]]:
     """Describe ``refs`` concurrently, gated by an ``asyncio.Semaphore``.
 
     Each blocking OpenAI call is offloaded to a thread worker
     (``asyncio.to_thread``) so the semaphore genuinely bounds the number of
-    in-flight requests.
+    in-flight requests. Returns ``(descs, failures)``: ``descs`` is aligned
+    to ``refs`` (empty string on failure) and ``failures`` collects one
+    ``url → reason`` line per failed image, so per-image errors surface
+    instead of being silently swallowed.
     """
     max_concurrency = max(1, int(llm.get("max_concurrency", DEFAULT_MAX_CONCURRENCY)))
 
     async def _main() -> list[Any]:
         sem = asyncio.Semaphore(max_concurrency)
 
-        async def _describe(ref: str) -> str:
+        async def _describe(ref: tuple[str, str]) -> str:
             async with sem:
-                return await asyncio.to_thread(_describe_one, client, llm, ref)
+                return await asyncio.to_thread(_describe_one, client, llm, ref[1])
 
         return list(await asyncio.gather(*(_describe(r) for r in refs), return_exceptions=True))
 
     results = asyncio.run(_main())
-    return [r if isinstance(r, str) else "" for r in results]
+    descs: list[str] = []
+    failures: list[str] = []
+    for (_, url), r in zip(refs, results):
+        if isinstance(r, str):
+            descs.append(r)
+        else:
+            descs.append("")
+            failures.append(f"{url} → {type(r).__name__}: {r}"[:200])
+    return descs, failures
 
 
 def _apply_descriptions(markdown: str, descs: list[str]) -> str:
@@ -220,7 +242,14 @@ class LlmEnhancer(EnhancerInterface):
             return result
 
         try:
-            descs = _run_bounded(client, llm, refs)
+            descs, failures = _run_bounded(client, llm, refs)
+            if failures and not any(descs):
+                result.add_warning(
+                    "LLM 图像描述全部失败，保留原始 Markdown：" + "；".join(failures[:3])
+                )
+                return result
+            if failures:
+                result.add_warning("部分图像描述失败：" + "；".join(failures[:3]))
             if not any(descs):
                 result.add_warning("LLM 图像描述返回为空，保留原始 Markdown")
                 return result

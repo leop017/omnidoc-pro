@@ -9,19 +9,14 @@ returns fully-degraded :class:`DocumentResult`s. This module requires the
 from __future__ import annotations
 
 import os
-import re
 import tempfile
-import threading
-import webbrowser
 from typing import Any
 
 import gradio as gr
 
 from omnidoc.ai import test_llm_connection
-from omnidoc.core.config import OmniDocConfig
-
-# Mutable so retries refresh the browser URL.
-_server_port = 7860
+from omnidoc.core.config import ChunkingSettings, OmniDocConfig
+from omnidoc.core.document import safe_download_stem
 
 
 def _theme_kwargs() -> dict[str, Any]:
@@ -48,10 +43,32 @@ def launch_app(
     blocks.launch(**kwargs)
 
 
-def _open_web() -> None:
-    threading.Thread(
-        target=lambda: webbrowser.open(f"http://127.0.0.1:{_server_port}/"), daemon=True
-    ).start()
+def _cleanup_stale_tempdirs(max_age_hours: int = 24) -> int:
+    """Remove ``omnidoc_webui_*`` temp dirs left over from previous sessions.
+
+    Downloads must survive while the app is running (gradio serves them from
+    the temp dir), so only directories older than ``max_age_hours`` are
+    removed — enough to stop unbounded accumulation across sessions.
+    """
+    import shutil
+    import time as _time
+
+    base = tempfile.gettempdir()
+    cutoff = _time.time() - max_age_hours * 3600
+    removed = 0
+    try:
+        entries = [e for e in os.listdir(base) if e.startswith("omnidoc_webui_")]
+    except OSError:
+        return 0
+    for name in entries:
+        path = os.path.join(base, name)
+        try:
+            if os.path.getmtime(path) < cutoff:
+                shutil.rmtree(path, ignore_errors=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def _on_test_llm(base_url: str, api_key: str, model: str) -> str:
@@ -67,25 +84,21 @@ def _validate_chunking(
     chunk_overlap,
     chunk_max_size,
 ) -> str | None:
-    """Pre-flight check on chunking params (mirrors chunker-side rules).
+    """Pre-flight check on chunking params.
 
-    Returns a human-readable error message, or None when the params are valid
-    (or chunking is disabled). markdown 策略只受 max_chunk_size 约束，size /
-    overlap 对它无意义。
+    The shared rules live on :meth:`ChunkingSettings.validate` (mirrors the
+    chunker-side ValueErrors); this wrapper handles raw UI values (gradio may
+    hand ``None`` for cleared Number inputs). Returns a human-readable error
+    message, or None when the params are valid (or chunking is disabled).
     """
-    if not chunking_enabled:
-        return None
-    issues: list[str] = []
-    if chunk_strategy in ("fixed", "sentence"):
-        size = int(chunk_size or 0)
-        overlap = int(chunk_overlap or 0)
-        if size <= 0:
-            issues.append("chunk_size 必须 > 0")
-        if overlap < 0 or overlap >= size:
-            issues.append("chunk_overlap 必须在 [0, chunk_size) 范围内")
-    else:
-        if int(chunk_max_size or 0) < 0:
-            issues.append("chunk_max_size 不能为负数（0=不切分）")
+    settings = ChunkingSettings(
+        enabled=bool(chunking_enabled),
+        strategy=chunk_strategy or "fixed",
+        chunk_size=int(chunk_size or 0),
+        chunk_overlap=int(chunk_overlap or 0),
+        max_chunk_size=int(chunk_max_size or 0),
+    )
+    issues = settings.validate_issues()
     return "；".join(issues) if issues else None
 
 
@@ -126,63 +139,62 @@ def _build_config(
     return cfg
 
 
-def _download_name(source: str, ext: str) -> str:
-    """Derive a safe download filename from a source path or URL."""
-    if source.startswith(("http://", "https://")):
-        from urllib.parse import urlparse
+def _unique_download_name(source: str, ext: str, used: set[str]) -> str:
+    """Return a download filename that is unique within the batch.
 
-        parsed = urlparse(source)
-        raw = (parsed.netloc + parsed.path).rstrip("/")
-        if "/" in raw:
-            raw = re.sub(r"\.[A-Za-z0-9]{1,5}$", "", raw)
-    else:
-        raw = os.path.splitext(os.path.basename(source.replace("\\", "/")))[0]
-    safe = re.sub(r"[^\w.-]+", "_", raw).strip("._-") or "untitled"
-    return f"{safe}.{ext}"
+    Same-stem sources (e.g. ``a/report.docx`` + ``b/report.docx``) would
+    otherwise write the same download file, silently losing the first
+    result's content. The numeric suffix lands on the source stem
+    (``report_1.chunks.jsonl``), since ``ext`` (e.g. ``chunks.jsonl``) may
+    itself contain dots and must stay intact.
+    """
+    stem = safe_download_stem(source)
+    base = f"{stem}.{ext}"
+    if base not in used:
+        used.add(base)
+        return base
+    n = 1
+    while f"{stem}_{n}.{ext}" in used:
+        n += 1
+    unique = f"{stem}_{n}.{ext}"
+    used.add(unique)
+    return unique
 
 
-def _write_downloads(results, out_dir: str) -> list[str]:
+def _write_downloads(results, out_dir: str, used: set[str]) -> list[str]:
     """Collect download paths: engine-written files are reused as-is; results
-    without them (MarkItDown / URL fetch) get one UTF-8 Markdown file each."""
+    without them (MarkItDown / URL fetch) get one UTF-8 Markdown file each.
+    Engine-written names are registered in ``used`` so later writers avoid
+    colliding with them."""
     paths: list[str] = []
     for r in results:
         if r.output_paths:
+            for p in r.output_paths:
+                used.add(os.path.basename(p))
             paths.extend(r.output_paths)
         elif r.markdown:
-            target = os.path.join(out_dir, _download_name(r.source, "md"))
+            target = os.path.join(out_dir, _unique_download_name(r.source, "md", used))
             with open(target, "w", encoding="utf-8") as f:
                 f.write(r.markdown)
             paths.append(target)
     return paths
 
 
-def _write_chunks(results, out_dir: str) -> list[str]:
+def _write_chunks(results, out_dir: str, used: set[str]) -> list[str]:
     """Write one JSONL chunk file per result that carries RAG chunks.
 
     Each line is one chunk: source / engine / offsets / metadata / text —
-    ready to feed straight into an embedding pipeline.
+    ready to feed straight into an embedding pipeline. Names share the same
+    ``used`` registry as the Markdown downloads.
     """
-    import json
+    from omnidoc.core.document import export_chunks_jsonl
 
     paths: list[str] = []
     for r in results:
         if not r.chunks:
             continue
-        target = os.path.join(out_dir, _download_name(r.source, "chunks.jsonl"))
-        with open(target, "w", encoding="utf-8") as f:
-            for c in r.chunks:
-                line = json.dumps(
-                    {
-                        "source": r.source,
-                        "engine": r.engine,
-                        "start_index": c.start_index,
-                        "end_index": c.end_index,
-                        "metadata": c.metadata,
-                        "text": c.text,
-                    },
-                    ensure_ascii=False,
-                )
-                f.write(line + "\n")
+        target = os.path.join(out_dir, _unique_download_name(r.source, "chunks.jsonl", used))
+        export_chunks_jsonl(r, target)
         paths.append(target)
     return paths
 
@@ -236,7 +248,14 @@ def _on_convert(
     )
     out_dir = tempfile.mkdtemp(prefix="omnidoc_webui_")
     cfg.output_dir = out_dir
-    results = get_controller().convert_batch(sources, cfg)
+    # Pass the flattened dict form with a batch-scoped name registry. The
+    # set object is shared by reference through the controller's config copy,
+    # so engine-written output names and the download writers below all
+    # claim from the same registry (no same-name overwrites).
+    cfg_dict = cfg.to_engine_kwargs()
+    used_names: set[str] = set()
+    cfg_dict["_used_output_names"] = used_names
+    results = get_controller().convert_batch(sources, cfg_dict)
 
     md_parts, status_lines = [], []
     total_chunks = 0
@@ -252,7 +271,9 @@ def _on_convert(
             line += " · ⚠️ " + " | ".join(r.warnings)
         status_lines.append(line)
     md = "\n\n---\n\n".join(md_parts)
-    downloads = _write_downloads(results, out_dir) + _write_chunks(results, out_dir)
+    downloads = _write_downloads(results, out_dir, used_names) + _write_chunks(
+        results, out_dir, used_names
+    )
     count = f"{len(results)} 个源" + (f" · {total_chunks} 个分块" if total_chunks else "")
     return md, "\n".join(status_lines), count, (downloads or None)
 
@@ -317,14 +338,13 @@ def build_app() -> gr.Blocks:
 
 
 def main() -> None:
-    global _server_port
     import argparse
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=7860)
     parser.add_argument("--share", action="store_true")
     args = parser.parse_args()
-    _server_port = args.port
+    _cleanup_stale_tempdirs()
     launch_app(build_app(), server_name="127.0.0.1", server_port=args.port, share=args.share)
 
 

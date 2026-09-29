@@ -144,15 +144,16 @@ class TestDegradation:
     def test_nonexistent_source_degrades_to_error_result(self, tmp_path: Path):
         # A missing file is caught by the Deep Engine's fallback chain and
         # recorded as a non-fatal error (System Rule #3: never abort, never
-        # raise). The pipeline therefore yields NO markdown (empty string —
-        # the cleaner/chunker stages short-circuit on an empty result) while
-        # the diagnostic is preserved on result.errors, so result.success is
-        # False without the whole run ever raising.
+        # raise). MarkItDown — the fallback engine — also fails on the
+        # missing path (FileNotFoundError), so the final result stays ERROR:
+        # the diagnostic is preserved on result.errors *and* mirrored in the
+        # placeholder Markdown, and result.success is False without the whole
+        # run ever raising.
         missing = tmp_path / "does_not_exist.xlsx"
         result = ConversionController().convert(str(missing), _cfg())
         assert result.success is False
-        assert result.markdown == ""
         assert result.errors
+        assert result.markdown.startswith("## ⚠️")
         assert not result.chunks
 
 

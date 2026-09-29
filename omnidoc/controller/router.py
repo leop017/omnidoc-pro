@@ -19,8 +19,8 @@ from omnidoc.engines.markitdown_engine import MarkItDownEngine
 class EngineRouter:
     def __init__(
         self,
-        deep: EngineInterface = None,
-        breadth: EngineInterface = None,
+        deep: EngineInterface | None = None,
+        breadth: EngineInterface | None = None,
     ):
         self.deep = deep if deep is not None else DeepEngine()
         self.breadth = breadth if breadth is not None else MarkItDownEngine()
@@ -52,7 +52,7 @@ class EngineRouter:
 
 
 def get_router(
-    deep: EngineInterface = None,
-    breadth: EngineInterface = None,
+    deep: EngineInterface | None = None,
+    breadth: EngineInterface | None = None,
 ) -> EngineRouter:
     return EngineRouter(deep=deep, breadth=breadth)

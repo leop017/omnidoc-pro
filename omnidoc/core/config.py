@@ -61,6 +61,26 @@ class ChunkingSettings(BaseModel):
     chunk_overlap: int = 64
     max_chunk_size: int = 0          # >0 only caps the markdown chunker's split
 
+    def validate_issues(self) -> list[str]:
+        """Mirror the chunker-side ValueError rules as human-readable strings.
+
+        Empty list = valid (or chunking disabled). markdown 策略只受
+        ``max_chunk_size`` 约束；``chunk_size`` / ``chunk_overlap`` 对它无意义。
+        Named ``validate_issues`` (not ``validate``) to avoid clashing with
+        Pydantic's own ``BaseModel.validate`` classmethod.
+        """
+        if not self.enabled:
+            return []
+        issues: list[str] = []
+        if self.strategy in ("fixed", "sentence"):
+            if self.chunk_size <= 0:
+                issues.append("chunk_size 必须 > 0")
+            if self.chunk_overlap < 0 or self.chunk_overlap >= self.chunk_size:
+                issues.append("chunk_overlap 必须在 [0, chunk_size) 范围内")
+        elif int(self.max_chunk_size) < 0:
+            issues.append("chunk_max_size 不能为负数（0=不切分）")
+        return issues
+
 
 class OmniDocConfig(BaseModel):
     """Root configuration for a conversion run."""

@@ -68,7 +68,9 @@ class ExcelBuilder:
         return get_excel_sheet_names(input_path, ext)
 
     @staticmethod
-    def _load_merged_cache_xls(input_path: str, sheet_names: list[str]) -> dict[str, list]:
+    def _load_merged_cache_xls(
+        input_path: str, sheet_names: list[str]
+    ) -> dict[str, list] | None:
         import xlrd
 
         log = get_logger()

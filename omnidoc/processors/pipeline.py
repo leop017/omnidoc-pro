@@ -10,13 +10,18 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from omnidoc.core.document import Document, DocumentResult
+from omnidoc.core.document import ConversionStatus, Document, DocumentResult
 from omnidoc.core.interfaces import (
     ChunkerInterface,
     CleanerInterface,
     EnhancerInterface,
 )
 from omnidoc.processors.chunkers import get_chunker
+
+# Spreadsheet / HTML conversions emit real data rows — consecutive duplicate
+# table lines are common and meaningful in those outputs. The generic
+# "duplicate header" rule would silently delete them, so it is scoped out.
+_TABLE_FORMATS = {".xls", ".xlsx", ".html", ".htm"}
 
 
 class ProcessingPipeline:
@@ -49,11 +54,19 @@ class ProcessingPipeline:
         result: DocumentResult,
         config: dict[str, Any],
     ) -> DocumentResult:
-        """Apply the enabled stages to ``result`` and return it (mutated)."""
+        """Apply the enabled stages to ``result`` and return it.
+
+        clean / chunk mutate in place; enhance honours the enhancer contract
+        and may return a new :class:`DocumentResult`.
+        """
+        if result.status == ConversionStatus.ERROR:
+            # A failed conversion's placeholder Markdown (warning header +
+            # error text) must not leak into the RAG index as chunks, get
+            # cleaned as if it were document content, or be sent to the LLM.
+            return result
         self._clean(result, config)
         self._chunk(result, config)
-        self._enhance(result, config)
-        return result
+        return self._enhance(result, config)
 
     # ── individual stages ──────────────────────────────────────
 
@@ -66,6 +79,12 @@ class ProcessingPipeline:
         if not result.markdown:
             return
         try:
+            fmt = f".{(result.source_format or '').lower()}"
+            if fmt in _TABLE_FORMATS and rules.get("remove_duplicate_headers"):
+                config = {
+                    **config,
+                    "cleaning_rules": {**rules, "remove_duplicate_headers": False},
+                }
             cleaned = self.cleaner.clean(result.markdown, config)
             result.markdown = cleaned
             result.document = Document(text=cleaned)
@@ -88,18 +107,19 @@ class ProcessingPipeline:
         except Exception as e:  # noqa: BLE001
             result.add_warning(f"chunking stage ({strategy}) failed: {e}")
 
-    def _enhance(self, result: DocumentResult, config: dict[str, Any]) -> None:
+    def _enhance(self, result: DocumentResult, config: dict[str, Any]) -> DocumentResult:
         llm = config.get("llm") or {}
         offline = bool(config.get("offline_mode", False))
         if not llm.get("enabled") or offline:
-            return
+            return result
         if self.enhancer is None:
             result.add_warning("LLM enabled but no enhancer wired in; skipping enrichment")
-            return
+            return result
         try:
-            result = self.enhancer.enhance(result, config)
+            return self.enhancer.enhance(result, config)
         except Exception as e:  # noqa: BLE001 - LLM is optional enrichment
             result.add_warning(f"LLM enrichment failed: {e}")
+            return result
 
 
 def default_pipeline(

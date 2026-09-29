@@ -29,8 +29,8 @@ def _to_config_dict(config: OmniDocConfig | dict[str, Any] | None) -> dict[str, 
 class ConversionController:
     def __init__(
         self,
-        router: EngineRouter = None,
-        pipeline: ProcessingPipeline = None,
+        router: EngineRouter | None = None,
+        pipeline: ProcessingPipeline | None = None,
     ):
         self.router = router if router is not None else get_router()
         self.pipeline = pipeline if pipeline is not None else default_pipeline()
@@ -44,9 +44,11 @@ class ConversionController:
     ) -> DocumentResult:
         """Convert one ``source`` (a path or URL) and run the post pipeline."""
         cfg = _to_config_dict(config)
+        cfg.setdefault("_used_output_names", set())
         t0 = time.perf_counter()
         result = self._convert_with_fallback(source, cfg)
-        self.pipeline.run(result, cfg)
+        result = self.pipeline.run(result, cfg)
+        self._sync_written_files(result)
         result.elapsed = time.perf_counter() - t0
         return result
 
@@ -59,6 +61,10 @@ class ConversionController:
     ) -> list[DocumentResult]:
         """Convert many sources; a single bad file never aborts the batch."""
         cfg = _to_config_dict(config)
+        # Batch-scoped registry (shared by reference with the engines and the
+        # UI download writers) so two same-stem sources never write the same
+        # output file — the second would silently overwrite the first.
+        cfg.setdefault("_used_output_names", set())
         return [self._convert_one(s, cfg) for s in sources]
 
     def _convert_one(
@@ -66,9 +72,27 @@ class ConversionController:
     ) -> DocumentResult:
         t0 = time.perf_counter()
         result = self._convert_with_fallback(source, cfg)
-        self.pipeline.run(result, cfg)
+        result = self.pipeline.run(result, cfg)
+        self._sync_written_files(result)
         result.elapsed = time.perf_counter() - t0
         return result
+
+    @staticmethod
+    def _sync_written_files(result: DocumentResult) -> None:
+        """Re-write engine-written ``.md`` files with the cleaned Markdown.
+
+        The deep engine serializes and writes *before* the pipeline runs, so
+        its file holds the raw conversion output while the preview shows the
+        cleaned content. Writing the cleaned content back keeps the two
+        consistent. Format exports (.html/.json) keep the raw serialization.
+        """
+        if not result.output_paths or not result.markdown:
+            return
+        from pathlib import Path
+
+        for path in result.output_paths:
+            if Path(path).suffix.lower() == ".md":
+                Path(path).write_text(result.markdown, encoding="utf-8")
 
     # ── engine selection with graceful degradation ─────────────
 
@@ -79,7 +103,7 @@ class ConversionController:
         if not cfg.get("allow_fallback", True):
             chain = chain[:1]
 
-        last: DocumentResult = None
+        last: DocumentResult | None = None
         for idx, engine in enumerate(chain):
             if not engine.available():
                 last = DocumentResult(
@@ -95,7 +119,12 @@ class ConversionController:
                 )
                 result.add_error(f"{type(e).__name__}: {e}")
             last = result
-            if result.markdown:
+            # Only a genuinely-successful engine output counts as a fallback
+            # win. A failed engine still carries placeholder Markdown inside
+            # its error result — treating non-empty Markdown as success would
+            # flip the status to DEGRADED and report ``success=True`` (exit
+            # code 0) even though every engine failed.
+            if result.status == ConversionStatus.OK:
                 if idx > 0:
                     result.fallback_used = True
                     result.status = ConversionStatus.DEGRADED
@@ -109,7 +138,7 @@ class ConversionController:
 
 
 def get_controller(
-    router: EngineRouter = None,
-    pipeline: ProcessingPipeline = None,
+    router: EngineRouter | None = None,
+    pipeline: ProcessingPipeline | None = None,
 ) -> ConversionController:
     return ConversionController(router=router, pipeline=pipeline)

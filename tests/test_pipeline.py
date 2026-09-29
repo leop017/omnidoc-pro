@@ -95,6 +95,44 @@ class TestCleanStage(unittest.TestCase):
         self.assertEqual(result.markdown, "RAW")  # preserved
         self.assertTrue(any("cleaning stage failed" in w for w in result.warnings))
 
+    def test_table_sources_scope_out_duplicate_headers(self):
+        # M5 regression: spreadsheet/HTML conversions emit real data rows —
+        # the generic duplicate-header rule must not silently delete them.
+        cleaner = _Cleaner()
+        seen: dict = {}
+        original = cleaner.clean
+
+        def spy(md, cfg):
+            seen["rules"] = dict(cfg.get("cleaning_rules") or {})
+            return original(md, cfg)
+
+        cleaner.clean = spy
+        pipeline = ProcessingPipeline(cleaner=cleaner)
+        result = DocumentResult(
+            source="s.xlsx", source_format="xlsx", markdown="| a | a |",
+            document=Document(text="| a | a |"),
+        )
+        pipeline._clean(result, {"cleaning_rules": {"remove_duplicate_headers": True}})
+        self.assertFalse(seen["rules"]["remove_duplicate_headers"])
+
+    def test_non_table_sources_keep_duplicate_headers(self):
+        cleaner = _Cleaner()
+        seen: dict = {}
+        original = cleaner.clean
+
+        def spy(md, cfg):
+            seen["rules"] = dict(cfg.get("cleaning_rules") or {})
+            return original(md, cfg)
+
+        cleaner.clean = spy
+        pipeline = ProcessingPipeline(cleaner=cleaner)
+        result = DocumentResult(
+            source="s.docx", source_format="docx", markdown="raw",
+            document=Document(text="raw"),
+        )
+        pipeline._clean(result, {"cleaning_rules": {"remove_duplicate_headers": True}})
+        self.assertTrue(seen["rules"]["remove_duplicate_headers"])
+
 
 class TestChunkStage(unittest.TestCase):
     def test_chunked_when_enabled(self):

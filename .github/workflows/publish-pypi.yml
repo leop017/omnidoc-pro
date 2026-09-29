@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "Tag to publish (e.g. v0.1.1)"
+        description: "Tag to publish (e.g. v0.2.0)"
         required: true
-        default: "v0.1.3"
+        default: "v0.2.0"
 
 permissions:
   contents: read
@@ -93,12 +93,21 @@ jobs:
           fi
           VERSION="${VERSION#v}"
           echo "Checking version: ${VERSION}"
-          if curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${VERSION}/json" | grep -q "404"; then
+          # Strict three-way check: only an explicit 404 means "not published",
+          # only 200 means "already published". A network failure (000) or any
+          # other status must FAIL the step — silently skipping here would let
+          # a transient outage permanently skip a release.
+          code=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/omnidoc-pro/${VERSION}/json")
+          echo "HTTP status: ${code}"
+          if [ "$code" = "404" ]; then
             echo "Version ${VERSION} not yet on PyPI, proceeding with upload."
             echo "should_upload=true" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "$code" = "200" ]; then
             echo "Version ${VERSION} already exists on PyPI, skipping upload."
             echo "should_upload=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Unexpected PyPI status ${code} for version ${VERSION} — failing instead of silently skipping."
+            exit 1
           fi
 
       - name: Install twine

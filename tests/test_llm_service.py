@@ -11,6 +11,10 @@ Notes on the Markdown image-ref grammar used here:
 * ``![](url)``   → empty alt, *describeable* by the LLM
 * ``![x](url)``  → non-empty alt, treated as "engine already embedded a
                   description" and left untouched by the enhancer
+
+The vision API receives the *bare* URL (``group(2)``) — never the full
+Markdown reference — so http(s) URLs, data URIs and local paths all reach
+the endpoint in a readable form.
 """
 
 import unittest
@@ -37,14 +41,14 @@ from omnidoc.core.document import DocumentResult
 def _ok_client(answers: dict | None = None):
     """A fake OpenAI-shaped client whose ``create`` returns canned captions.
 
-    ``answers`` maps the *full image ref* (e.g. ``"![](http://i/a.png)"``) ->
-    the caption to return. Refs missing from the map yield an empty caption
+    ``answers`` maps the *bare image URL* (e.g. ``"http://i/a.png"``) ->
+    the caption to return. URLs missing from the map yield an empty caption
     (exercises the "some descriptions come back empty" branch).
 
-    Note: the source's ``_describe_one`` passes the full ``ref`` to
-    ``_to_data_uri``; for non-local http(s) URLs that returns the ref
-    unchanged, so the URL the fake sees is the ref string itself, not the
-    bare URL inside the ref.
+    Note: the source's ``_describe_one`` receives the bare URL extracted from
+    the Markdown reference and passes it to ``_to_data_uri``; for non-local
+    http(s) URLs that returns the URL unchanged, so the URL the fake sees is
+    the bare URL, not the ``![alt](url)`` reference.
     """
     answers = answers or {}
 
@@ -113,12 +117,15 @@ class TestExtractImageRefs(unittest.TestCase):
 
 
 class TestDescribeableImageRefs(unittest.TestCase):
+    """``_describeable_image_refs`` returns ``(full_ref, bare_url)`` pairs."""
 
     def test_only_empty_alt_refs_included(self):
         # ``![](url)`` is the empty-alt ref the LLM actually fills in;
         # ``![text](url)`` has its own alt and is treated as already described.
         md = "![text](http://i/a.png)\n![](http://i/b.png)"
-        self.assertEqual(_describeable_image_refs(md), ["![](http://i/b.png)"])
+        self.assertEqual(
+            _describeable_image_refs(md), [("![](http://i/b.png)", "http://i/b.png")]
+        )
 
     def test_all_have_alt_returns_empty(self):
         md = "![a](http://i/a.png) ![b](http://i/b.png)"
@@ -126,11 +133,25 @@ class TestDescribeableImageRefs(unittest.TestCase):
 
     def test_whitespace_alt_treated_as_empty(self):
         md = "![   ](http://i/a.png)"
-        self.assertEqual(_describeable_image_refs(md), ["![   ](http://i/a.png)"])
+        self.assertEqual(
+            _describeable_image_refs(md), [("![   ](http://i/a.png)", "http://i/a.png")]
+        )
 
     def test_single_empty_alt(self):
         md = "![](http://i/a.png)"
-        self.assertEqual(_describeable_image_refs(md), ["![](http://i/a.png)"])
+        self.assertEqual(
+            _describeable_image_refs(md), [("![](http://i/a.png)", "http://i/a.png")]
+        )
+
+    def test_bare_url_extracted_not_full_ref(self):
+        # H2 regression: the vision API must receive the bare URL inside the
+        # parentheses, never the full Markdown reference (which is not a
+        # valid image_url value).
+        md = "![](https://example.com/pic.png)"
+        (full_ref, url) = _describeable_image_refs(md)[0]
+        self.assertEqual(full_ref, "![](https://example.com/pic.png)")
+        self.assertEqual(url, "https://example.com/pic.png")
+        self.assertFalse(url.startswith("!["))
 
 
 class TestApplyDescriptions(unittest.TestCase):
@@ -157,26 +178,46 @@ class TestApplyDescriptions(unittest.TestCase):
 class TestRunBounded(unittest.TestCase):
 
     def test_returns_aligned_captions(self):
-        client = _ok_client({"![](http://i/a.png)": "A", "![](http://i/b.png)": "B"})
-        refs = ["![](http://i/a.png)", "![](http://i/b.png)"]
-        descs = _run_bounded(client, _full_llm(), refs)
+        client = _ok_client({"http://i/a.png": "A", "http://i/b.png": "B"})
+        refs = [
+            ("![](http://i/a.png)", "http://i/a.png"),
+            ("![](http://i/b.png)", "http://i/b.png"),
+        ]
+        descs, failures = _run_bounded(client, _full_llm(), refs)
         self.assertEqual(descs, ["A", "B"])
+        self.assertEqual(failures, [])
 
-    def test_failed_ref_yields_empty_string(self):
+    def test_empty_caption_not_reported_as_failure(self):
+        # A legitimate empty caption (the API answered) is not a failure.
         client = _ok_client()  # no answers -> empty captions
-        refs = ["![](http://i/a.png)"]
-        descs = _run_bounded(client, _full_llm(), refs)
+        descs, failures = _run_bounded(
+            client, _full_llm(), [("![](http://i/a.png)", "http://i/a.png")]
+        )
         self.assertEqual(descs, [""])
+        self.assertEqual(failures, [])
+
+    def test_failed_call_collected_with_reason(self):
+        fake = mock.Mock()
+        fake.chat.completions.create.side_effect = RuntimeError("boom")
+        descs, failures = _run_bounded(
+            fake, _full_llm(), [("![](http://i/a.png)", "http://i/a.png")]
+        )
+        self.assertEqual(descs, [""])
+        self.assertEqual(len(failures), 1)
+        self.assertIn("http://i/a.png", failures[0])
+        self.assertIn("RuntimeError", failures[0])
 
     def test_respects_max_concurrency_floor(self):
         # max_concurrency=0 must be clamped to at least 1, not 0.
-        client = _ok_client({"![](http://i/a.png)": "A"})
-        descs = _run_bounded(client, _full_llm(max_concurrency=0), ["![](http://i/a.png)"])
+        client = _ok_client({"http://i/a.png": "A"})
+        descs, _ = _run_bounded(
+            client, _full_llm(max_concurrency=0), [("![](http://i/a.png)", "http://i/a.png")]
+        )
         self.assertEqual(descs, ["A"])
 
     def test_empty_ref_list(self):
-        client = _ok_client({"![](http://i/a.png)": "A"})
-        self.assertEqual(_run_bounded(client, _full_llm(), []), [])
+        client = _ok_client({"http://i/a.png": "A"})
+        self.assertEqual(_run_bounded(client, _full_llm(), []), ([], []))
 
 
 class TestToDataUri(unittest.TestCase):
@@ -264,7 +305,7 @@ class TestLlmEnhancerEnhance(unittest.TestCase):
 
     def test_success_applies_captions(self):
         r = self._result("![](http://i/a.png)")
-        client = _ok_client({"![](http://i/a.png)": "这是一张图表"})
+        client = _ok_client({"http://i/a.png": "这是一张图表"})
         with mock.patch.object(llm_service, "build_client", return_value=client):
             out = self.enh.enhance(r, {"llm": _full_llm()})
         self.assertIn("🖼️ 图片描述：这是一张图表", out.markdown)
@@ -284,6 +325,35 @@ class TestLlmEnhancerEnhance(unittest.TestCase):
             out = self.enh.enhance(r, {"llm": _full_llm()})
         self.assertTrue(any("返回为空" in w for w in out.warnings))
         self.assertEqual(out.markdown, "![](http://i/a.png)")
+
+    def test_all_failed_calls_report_reason_not_empty_hint(self):
+        # H2 regression: per-image API failures surface their real reason
+        # (401/400/…) instead of the misleading "返回为空" hint.
+        r = self._result("![](http://i/a.png)")
+        fake = mock.Mock()
+        fake.chat.completions.create.side_effect = RuntimeError("401 unauthorized")
+        with mock.patch.object(llm_service, "build_client", return_value=fake):
+            out = self.enh.enhance(r, {"llm": _full_llm()})
+        self.assertTrue(any("全部失败" in w and "401" in w for w in out.warnings))
+        self.assertEqual(out.markdown, "![](http://i/a.png)")
+
+    def test_partial_failures_warn_but_captions_still_applied(self):
+        r = self._result("![](http://i/a.png)\n\n![](http://i/b.png)")
+        client = _ok_client({"http://i/b.png": "B 描述"})
+
+        real_create = client.chat.completions.create
+
+        def _create(model, messages, timeout):
+            url = messages[0]["content"][1]["image_url"]["url"]
+            if url == "http://i/a.png":
+                raise RuntimeError("boom-a")
+            return real_create(model, messages, timeout)
+
+        client.chat.completions.create = _create
+        with mock.patch.object(llm_service, "build_client", return_value=client):
+            out = self.enh.enhance(r, {"llm": _full_llm()})
+        self.assertIn("🖼️ 图片描述：B 描述", out.markdown)
+        self.assertTrue(any("部分图像描述失败" in w and "boom-a" in w for w in out.warnings))
 
     def test_bounded_run_exception_degrades(self):
         r = self._result("![](http://i/a.png)")

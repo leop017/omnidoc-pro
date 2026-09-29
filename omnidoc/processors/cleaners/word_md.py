@@ -64,7 +64,7 @@ class WordMdCleaner(CleanerInterface):
     # ── CleanerInterface ───────────────────────────────────────
 
     def clean(self, content: str, config: dict[str, Any]) -> str:
-        rules = self._fixed_rules or config.get("cleaning_rules", {})
+        rules = config.get("cleaning_rules", {}) if self._fixed_rules is None else self._fixed_rules
         active = self._resolve_line_rules(rules)
         collapse_empty = bool(rules.get("remove_empty_lines", False))
         normalize = bool(rules.get("normalize_spaces", False))

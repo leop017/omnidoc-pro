@@ -37,6 +37,9 @@ def _ok_converter():
         def convert(self, source):
             return _FakeResult(f"MD:{source}")
 
+        def convert_stream(self, stream, file_extension=None, url=None):
+            return _FakeResult(f"MD:{url}")
+
     return _FakeConverter
 
 
@@ -69,9 +72,15 @@ class TestSupports(unittest.TestCase):
     def test_urls_always_supported(self):
         self.assertTrue(self.engine.supports("https://example.com/a.pdf"))
 
-    def test_depth_formats_rejected(self):
-        for ext in (".doc", ".docx", ".xls", ".xlsx"):
-            self.assertFalse(self.engine.supports(f"a{ext}"), ext)
+    def test_legacy_doc_rejected(self):
+        # MarkItDown has no .doc converter; only the legacy format is excluded.
+        self.assertFalse(self.engine.supports("a.doc"))
+
+    def test_depth_formats_claimable_for_fallback(self):
+        # .docx/.xls/.xlsx are handled natively by MarkItDown and stay
+        # claimable so the Deep -> MarkItDown fallback chain genuinely works.
+        for ext in (".docx", ".xls", ".xlsx"):
+            self.assertTrue(self.engine.supports(f"a{ext}"), ext)
 
     def test_breadth_formats_supported(self):
         for ext in (".pdf", ".pptx", ".csv", ".html", ".png"):
@@ -151,7 +160,13 @@ class TestConvertDocument(unittest.TestCase):
     def test_public_url_path(self):
         engine = MarkItDownEngine()
         engine._md_class = _ok_converter()
-        result = engine.convert_document("http://8.8.8.8/x", {})
+        # The URL branch fetches via _fetch_safe_html before handing the HTML
+        # to MarkItDown — mock the fetch so the test stays offline.
+        with mock.patch(
+            "omnidoc.engines.markitdown_engine._fetch_safe_html",
+            return_value="<html><body>x</body></html>",
+        ):
+            result = engine.convert_document("http://8.8.8.8/x", {})
         self.assertIs(result.status, ConversionStatus.OK)
         self.assertEqual(result.markdown, "MD:http://8.8.8.8/x")
 
