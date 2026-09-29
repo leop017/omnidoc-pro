@@ -8,7 +8,7 @@ stub collaborators so no real cleaner / chunker / LLM is exercised.
 
 import unittest
 
-from omnidoc.core.document import Chunk, Document, DocumentResult
+from omnidoc.core.document import Chunk, ConversionStatus, Document, DocumentResult
 from omnidoc.processors.pipeline import ProcessingPipeline, default_pipeline
 
 
@@ -205,6 +205,147 @@ class TestDefaultPipeline(unittest.TestCase):
         pipeline = default_pipeline(cleaner=_Cleaner(), enhancer=_Enhancer())
         self.assertIsInstance(pipeline.cleaner, _Cleaner)
         self.assertIsInstance(pipeline.enhancer, _Enhancer)
+
+
+class TestCleanPreservesStructure(unittest.TestCase):
+    """B1 regression: the clean stage must not drop the engine's elements /
+    metadata when it rebuilds the :class:`Document` around the cleaned text."""
+
+    def _cleaner(self, out="CLEANED"):
+        return _Cleaner(out=out)
+
+    def test_clean_keeps_engine_elements(self):
+        from omnidoc.core.document import Element
+
+        cleaner = self._cleaner()
+        pipeline = ProcessingPipeline(cleaner=cleaner)
+        result = DocumentResult(
+            source="s.docx",
+            source_format="docx",
+            markdown="  raw  ",
+            document=Document(
+                text="  raw  ",
+                elements=[Element("heading", "Intro", metadata={"level": 2})],
+                metadata={"origin": "docx"},
+            ),
+        )
+        pipeline._clean(result, {"cleaning_rules": {"remove_page_numbers": True}})
+        self.assertEqual(result.markdown, "CLEANED")
+        # Structure must survive the rebuild so the header-aware chunker can
+        # still use it instead of falling back to text re-parsing.
+        self.assertEqual(len(result.document.elements), 1)
+        self.assertEqual(result.document.elements[0].element_type, "heading")
+        self.assertEqual(result.document.metadata, {"origin": "docx"})
+
+    def test_clean_with_none_document_is_safe(self):
+        # An engine that left ``result.document`` unset must not crash the
+        # clean stage.
+        cleaner = self._cleaner()
+        pipeline = ProcessingPipeline(cleaner=cleaner)
+        result = DocumentResult(source="s.txt", source_format="txt", markdown="raw")
+        pipeline._clean(result, {"cleaning_rules": {"remove_page_numbers": True}})
+        self.assertEqual(result.markdown, "CLEANED")
+        self.assertTrue(result.document.elements is not None)
+
+
+class TestZeroChunkStatus(unittest.TestCase):
+    """B4 regression: 0 chunks for a non-empty document must degrade the
+    result so the CLI exit code / ``success`` flag reflect the empty RAG index."""
+
+    def _empty_chunker(self):
+        class _Empty:
+            def __init__(self):
+                self.calls = 0
+
+            def chunk(self, doc, chunking):
+                self.calls += 1
+                return []
+
+        return _Empty()
+
+    def test_zero_chunks_degrades_status(self):
+        chunker = self._empty_chunker()
+        pipeline = ProcessingPipeline(chunker_factory=lambda strategy: chunker)
+        result = DocumentResult(
+            source="s.txt",
+            markdown="# A\n\nbody",
+            document=Document(text="# A\n\nbody"),
+        )
+        pipeline._chunk(result, {"chunking": {"enabled": True, "strategy": "markdown"}})
+        self.assertEqual(result.chunks, [])
+        self.assertEqual(result.status, ConversionStatus.DEGRADED)
+        self.assertTrue(result.success)  # DEGRADED is still "success" for the CLI
+
+    def test_nonzero_chunks_stay_ok(self):
+        chunker = _Chunker()  # returns 2 chunks
+        pipeline = ProcessingPipeline(chunker_factory=lambda strategy: chunker)
+        result = DocumentResult(
+            source="s.txt",
+            markdown="# A\n\nbody",
+            document=Document(text="# A\n\nbody"),
+        )
+        pipeline._chunk(result, {"chunking": {"enabled": True, "strategy": "fixed"}})
+        self.assertEqual(result.status, ConversionStatus.OK)
+
+
+class TestRechunkAfterEnhance(unittest.TestCase):
+    """A2 regression: when the LLM enhancer rewrites the Markdown *after* the
+    chunk stage, the chunks must be re-derived so they stay locatable in the
+    final text."""
+
+    class _RechunkingEnhancer:
+        """Mimics :class:`LlmEnhancer`: rewrites markdown AND mirrors the new
+        text into ``result.document`` (as the real enhancer does)."""
+
+        def __init__(self):
+            self.calls = 0
+
+        def enhance(self, result, cfg):
+            self.calls += 1
+            result.markdown = result.markdown + "\n> caption"
+            # The real LlmEnhancer mirrors the rewrite into both
+            # ``result.markdown`` and ``result.document``. Keep the engine's
+            # structure so the re-chunk stage can still produce chunks.
+            result.document = Document(
+                text=result.markdown,
+                elements=result.document.elements,
+                metadata=result.document.metadata,
+            )
+            return result
+
+    def test_chunks_unchanged_when_enhancer_leaves_text_same(self):
+        # No-op enhancer: markdown equals document.text -> no re-chunk.
+        class _Noop:
+            def enhance(self, result, cfg):
+                return result
+
+        chunker = _Chunker()
+        pipeline = ProcessingPipeline(
+            enhancer=_Noop(), chunker_factory=lambda strategy: chunker
+        )
+        result = DocumentResult(source="s.txt", markdown="RAW", document=Document(text="RAW"))
+        pipeline.run(result, {"chunking": {"enabled": True}, "llm": {"enabled": True, "base_url": "x", "api_key": "k", "model": "m"}})
+        self.assertEqual(chunker.calls, 1)  # only the initial chunk stage
+
+    def test_rechunk_when_enhancer_changes_text(self):
+        chunker = _Chunker()
+        enhancer = self._RechunkingEnhancer()
+        pipeline = ProcessingPipeline(
+            enhancer=enhancer, chunker_factory=lambda strategy: chunker
+        )
+        result = DocumentResult(source="s.txt", markdown="RAW", document=Document(text="RAW"))
+        pipeline.run(
+            result,
+            {
+                "chunking": {"enabled": True},
+                "llm": {"enabled": True, "base_url": "x", "api_key": "k", "model": "m"},
+            },
+        )
+        # The chunker must run twice: once in the chunk stage, once to re-derive
+        # chunks against the enriched text.
+        self.assertEqual(chunker.calls, 2)
+        self.assertIn("caption", result.markdown)
+        self.assertGreater(len(result.chunks), 0)
 
 
 if __name__ == "__main__":

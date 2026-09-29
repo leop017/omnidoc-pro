@@ -254,7 +254,15 @@ class LlmEnhancer(EnhancerInterface):
                 result.add_warning("LLM 图像描述返回为空，保留原始 Markdown")
                 return result
             result.markdown = _apply_descriptions(result.markdown, descs)
-            result.document = Document(text=result.markdown)
+            # Mirror the rewrite into ``result.document`` while preserving the
+            # engine's structure (elements / metadata). Dropping them here
+            # would undo the pipeline's clean-stage structure preservation and
+            # force the (re-)chunker onto the text-reparse fallback path.
+            result.document = Document(
+                text=result.markdown,
+                elements=list(result.document.elements) if result.document else [],
+                metadata=dict(result.document.metadata) if result.document else {},
+            )
         except Exception as e:  # noqa: BLE001 - LLM is optional enrichment
             result.add_warning(f"LLM 增强失败，保留原始 Markdown： {e}")
         return result

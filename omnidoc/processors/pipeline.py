@@ -66,7 +66,39 @@ class ProcessingPipeline:
             return result
         self._clean(result, config)
         self._chunk(result, config)
-        return self._enhance(result, config)
+        markdown_before = result.markdown
+        enhanced = self._enhance(result, config)
+        # The LLM enhancer rewrites ``result.markdown`` (inserting image
+        # descriptions) *after* the chunk stage has already run, so the chunks
+        # it produced no longer line up with the final text. Re-chunk when the
+        # enhancer actually changed the document AND chunking was active —
+        # otherwise the chunks would index pre-enrichment text and the RAG
+        # index would miss the new captions. When nothing changed (no
+        # describable refs / LLM off / offline) the markdown is identical and
+        # this is a no-op.
+        if enhanced is result and result.chunks and result.markdown != markdown_before:
+            self._rechunk_if_stale(result, config)
+        return enhanced
+
+    def _rechunk_if_stale(self, result: DocumentResult, config: dict[str, Any]) -> None:
+        """Re-run the chunk stage when the LLM enhancer desynced the chunks.
+
+        ``_enhance`` rewrites ``result.markdown`` *after* the chunk stage ran,
+        so ``result.chunks`` still slice the pre-enrichment text. Re-chunking
+        restores the invariant that every chunk slice is locatable in the
+        final document. The guard in :meth:`run` only calls this when the
+        enhancer actually changed the markdown, so this is a no-op when the
+        LLM was skipped (no describable refs / offline / not enabled).
+        """
+        chunking = config.get("chunking") or {}
+        if not chunking.get("enabled"):
+            return
+        try:
+            strategy = chunking.get("strategy", "fixed")
+            chunker: ChunkerInterface = self.chunker_factory(strategy)
+            result.chunks = chunker.chunk(result.document, dict(chunking))
+        except Exception as e:  # noqa: BLE001 - degrade, never abort the batch
+            result.add_warning(f"re-chunk after LLM enhance failed: {e}")
 
     # ── individual stages ──────────────────────────────────────
 
@@ -87,7 +119,16 @@ class ProcessingPipeline:
                 }
             cleaned = self.cleaner.clean(result.markdown, config)
             result.markdown = cleaned
-            result.document = Document(text=cleaned)
+            # Preserve the engine-populated structure (elements + metadata) so
+            # the header-aware chunker can still use it after cleaning. Only the
+            # text is replaced by the cleaned form; rebuilding a bare
+            # ``Document(text=...)`` would silently drop ``elements`` and force
+            # the chunker onto the text-reparse fallback path every time.
+            result.document = Document(
+                text=cleaned,
+                elements=list(result.document.elements) if result.document else [],
+                metadata=dict(result.document.metadata) if result.document else {},
+            )
         except Exception as e:  # noqa: BLE001 - degrade, never abort the batch
             result.add_warning(f"cleaning stage failed: {e}")
 
@@ -104,6 +145,12 @@ class ProcessingPipeline:
                     f"chunking stage ({strategy}) produced 0 chunks for a non-empty document; "
                     f"the chosen strategy may not apply to this input"
                 )
+                # 0 chunks for a non-empty document is a *functional* failure
+                # for RAG (the index would be empty), so the result must not
+                # stay OK — degrade it so the CLI exit code / success flag
+                # reflect that nothing chunkable was produced.
+                if result.status == ConversionStatus.OK:
+                    result.status = ConversionStatus.DEGRADED
         except Exception as e:  # noqa: BLE001
             result.add_warning(f"chunking stage ({strategy}) failed: {e}")
 

@@ -188,6 +188,11 @@ class DeepEngine(EngineInterface):
         ]
         for sn, err in built["errors"]:
             result.add_warning(f"工作表 {sn} 转换失败： {err}")
+        if built["errors"]:
+            # Partial success: some worksheets converted, some failed. This is
+            # a *degraded* result, not OK — otherwise the CLI exit code (which
+            # keys off ``success``) would report a damaged .xlsx as clean.
+            result.status = ConversionStatus.DEGRADED
         if output_dir:
             used = config.get("_used_output_names")
             paths = [
