@@ -175,7 +175,10 @@ def cmd_convert(
                 _unique_cli_name(safe_download_stem(r.source), "chunks.jsonl", used),
             )
             export_chunks_jsonl(r, path)
-            typer.echo(f"已导出分块：{path}")
+            # Route the human-facing progress note to stderr so that, when
+            # --json is also requested, stdout stays a pure JSON stream that
+            # downstream `json.loads(sys.stdin)` can consume.
+            typer.echo(f"已导出分块：{path}", err=True)
     if json_out:
         typer.echo(json.dumps([r.to_dict() for r in results], ensure_ascii=False, indent=2))
     else:

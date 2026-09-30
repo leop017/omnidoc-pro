@@ -449,7 +449,7 @@ class ExcelBuilder:
 
         all_sheets = self.load_sheets(input_path, sheets)
         if not all_sheets:
-            return {"sheets": [], "errors": [], "metadata": {}, "stem": stem}
+            return {"sheets": [], "errors": [], "skipped": [], "metadata": {}, "stem": stem}
 
         sheet_names = list(all_sheets.keys())
         merged_cache = self._load_merged_cache(input_path, ext, sheet_names)
@@ -457,12 +457,31 @@ class ExcelBuilder:
 
         out_sheets: list[dict[str, Any]] = []
         errors: list[tuple] = []
+        # A sheet the caller *named* but the workbook does not hold is a
+        # skippable condition (no content was lost), not a conversion failure.
+        # ``load_sheets`` filters to the names it actually found, so detect the
+        # gap here and seed ``skipped`` — the per-sheet loop below only ever
+        # sees sheets that exist in ``all_sheets``.
+        requested: Optional[list[str]] = sheets
+        skipped: list[tuple] = [
+            (sn, "工作表不存在")
+            for sn in requested
+            if sn not in all_sheets
+        ] if requested is not None else []
+        # Validate the output format *before* the per-sheet loop. ``_sheet_content``
+        # raises ``ValueError`` for an unsupported format, which must surface as a
+        # genuine per-sheet *error* (one recorded entry per sheet), NOT be caught
+        # by the ``except ValueError`` handler that demotes empty sheets to
+        # ``skipped``. Raising once here would abort the batch entirely, so instead
+        # pre-check and record one error per sheet.
+        fmt_ok = output_fmt in ("md", "html", "json")
+        if not fmt_ok:
+            errors.extend((sn, f"不支持的输出格式： {output_fmt}") for sn in sheet_names)
         for sn in sheet_names:
+            if not fmt_ok:
+                continue
             try:
                 df = all_sheets.get(sn)
-                if df is None:
-                    errors.append((sn, "工作表不存在"))
-                    continue
                 mr = merged_cache.get(sn) if merged_cache else None
                 rows_data, merged_map, max_cols, df_clean = self._prepare(df, mr)
                 sn_clean = sn_overrides.get(sn) or clean_filename(sn)
@@ -477,6 +496,15 @@ class ExcelBuilder:
                     "rows": len(rows_data) - 1,
                     "cols": max_cols,
                 })
+            except ValueError as e:
+                # ``_prepare`` raises ValueError when a sheet holds no data at
+                # all (``df.empty`` or entirely-NaN after dropna). An empty
+                # sheet is a *normal* workbook state, not a conversion
+                # failure, so it belongs in ``skipped`` — putting it in
+                # ``errors`` would make a clean .xlsx containing one empty
+                # sheet report DEGRADED downstream.
+                self.logger.warning("工作表跳过 [%s]: %s", sn, str(e))
+                skipped.append((sn, str(e)))
             except Exception as e:  # per-sheet isolation: one bad sheet never aborts the batch
                 self.logger.error("工作表转换失败 [%s]: %s", sn, str(e))
                 errors.append((sn, str(e)))
@@ -484,12 +512,14 @@ class ExcelBuilder:
         return {
             "sheets": out_sheets,
             "errors": errors,
+            "skipped": skipped,
             "stem": stem,
             "source_name": source_name,
             "metadata": {
                 "source": source_name,
                 "format": ext.lstrip("."),
                 "sheet_count": len(out_sheets),
+                "skipped": [sn for sn, _ in skipped],
             },
         }
 

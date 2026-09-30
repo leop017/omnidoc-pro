@@ -278,5 +278,64 @@ class TestMarkdownChunker(unittest.TestCase):
                 self.assertLessEqual(c.start_index, chunks[i - 1].end_index)
 
 
+class TestMakeChunkMetadataCopiesNestedLists(unittest.TestCase):
+    """Regression: ``make_chunk`` must NOT leak the Deep Engine's nested
+    ``metadata["sheets"]`` list across chunks or back into the source
+    ``Document.metadata``.
+
+    ``dict(metadata)`` is a top-level shallow copy, so a nested ``list`` value
+    (the per-sheet summary list) would otherwise be *shared* by every chunk and
+    by the source Document. An in-place mutation downstream (append / mutate
+    one sheet summary) would then contaminate every sibling chunk.
+    """
+
+    def _doc_metadata(self):
+        return {
+            "source": "book.xlsx",
+            "sheets": [
+                {"sheet": "Full", "rows": 10, "cols": 3},
+            ],
+        }
+
+    def test_sheets_list_not_shared_across_chunks(self):
+        from omnidoc.processors.chunkers import make_chunk
+
+        meta = self._doc_metadata()
+        c1 = make_chunk("p1", meta, index=0, total=2, start=0, end=2)
+        c2 = make_chunk("p2", meta, index=1, total=2, start=2, end=4)
+
+        self.assertFalse(c1.metadata["sheets"] is c2.metadata["sheets"])
+
+        c1.metadata["sheets"].append({"sheet": "MUTATED", "rows": 0, "cols": 0})
+        self.assertNotIn(
+            {"sheet": "MUTATED", "rows": 0, "cols": 0},
+            c2.metadata["sheets"],
+        )
+
+    def test_sheets_list_not_shared_with_source_document(self):
+        from omnidoc.processors.chunkers import make_chunk
+
+        meta = self._doc_metadata()
+        c1 = make_chunk("p1", meta, index=0, total=1, start=0, end=2)
+
+        # Mutating the chunk's sheets list must not leak back to the source.
+        c1.metadata["sheets"].append({"sheet": "MUTATED", "rows": 0, "cols": 0})
+        self.assertEqual(meta["sheets"], [{"sheet": "Full", "rows": 10, "cols": 3}])
+
+    def test_non_sheets_keys_still_share_reference(self):
+        """Only ``sheets`` is independently copied; other keys keep the
+        existing top-level dict copy behaviour (no over-copying)."""
+        from omnidoc.processors.chunkers import make_chunk
+
+        shared_inner = {"a": 1}
+        meta = {"nested": shared_inner}
+        c = make_chunk("p", meta, index=0, total=1, start=0, end=1)
+        # Top-level mapping is a fresh dict…
+        self.assertIsNot(c.metadata, meta)
+        # …but a non-list nested value still shares its reference (documented
+        # trade-off of the minimal list-only fix).
+        self.assertIs(c.metadata["nested"], shared_inner)
+
+
 if __name__ == "__main__":
     unittest.main()

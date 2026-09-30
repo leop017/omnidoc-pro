@@ -534,6 +534,77 @@ class TestMergedHeaderRowspan:
             assert cell in content, f"missing {cell!r} in enhanced_md output"
 
 
+class TestEmptyAndMissingSheetSkipped:
+    """H1-deep regression: an *empty* sheet or a sheet the caller *named but
+    the workbook lacks* is a skippable condition, not a conversion failure.
+
+    Before the fix, ``_prepare`` raised ``ValueError("工作表为空")`` for an empty
+    sheet and the per-sheet loop put "工作表不存在" into ``errors`` — both
+    promoted the whole multi-sheet result to ``DEGRADED`` in
+    ``_result_multi``, which made a clean .xlsx containing one empty sheet
+    report ``exit 1`` in the CLI.
+
+    Now both belong in ``skipped`` (with a workbook-level ``metadata["skipped"]``
+    list), and only genuine per-sheet exceptions land in ``errors``.
+    """
+
+    def test_empty_sheet_lands_in_skipped_not_errors(self, tmp_path):
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Full"
+        ws.append(["H1", "H2"])
+        ws.append(["a", "b"])
+        wb.create_sheet("Empty")          # an empty sheet is a normal workbook state
+        path = tmp_path / "mixed.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        result = b.build(str(path), "md", False, None)
+
+        # The non-empty sheet converts; the empty one is skipped, not errored.
+        assert [s["sheet"] for s in result["sheets"]] == ["Full"]
+        assert result["errors"] == []
+        assert [sn for sn, _ in result["skipped"]] == ["Empty"]
+        assert result["metadata"]["skipped"] == ["Empty"]
+
+    def test_missing_sheet_lands_in_skipped_not_errors(self, tmp_path):
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Only"
+        ws.append(["H"])
+        path = tmp_path / "missing.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        # Ask for a sheet that does not exist in the workbook.
+        result = b.build(str(path), "md", False, ["Only", "Phantom"])
+
+        assert [s["sheet"] for s in result["sheets"]] == ["Only"]
+        assert result["errors"] == []
+        assert [sn for sn, _ in result["skipped"]] == ["Phantom"]
+        assert result["metadata"]["skipped"] == ["Phantom"]
+
+    def test_genuine_failure_still_in_errors(self, tmp_path):
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "S1"
+        ws.append(["H"])
+        path = tmp_path / "bad.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        # An unsupported output format is a *real* per-sheet failure, so it
+        # must remain in errors (not be demoted to skipped).
+        result = b.build(str(path), "xml", False, None)
+        assert result["sheets"] == []
+        assert len(result["errors"]) == 1
+        assert "xml" in result["errors"][0][1]
+        assert result["skipped"] == []
+
+
 if __name__ == "__main__":
     import sys
 

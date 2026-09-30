@@ -35,6 +35,7 @@ def _importable(mod: str) -> bool:
 _MISSING_DOC_MSG = (
     "Legacy .doc 支持需要 textract：请安装 omnidoc-pro[legacy-doc]"
 )
+_MISSING_DEPS_MSG = "Deep Engine 依赖缺失（mammoth/docx/pandas/openpyxl），请安装 omnidoc-pro"
 
 
 class DeepEngine(EngineInterface):
@@ -51,6 +52,12 @@ class DeepEngine(EngineInterface):
     # ── EngineInterface: in-memory Markdown ────────────────────
 
     def convert(self, source: str, config: dict[str, Any]) -> str:
+        if not self.available():
+            # In-memory convert() is a public API that the router normally
+            # pre-guards with available(), but a direct caller bypassing the
+            # router would otherwise hit an ImportError deep inside the
+            # builders with no actionable message.
+            raise ValueError(_MISSING_DEPS_MSG)
         if _ext(source) == ".doc" and not _importable("textract"):
             raise ValueError(_MISSING_DOC_MSG)
         output_fmt = config.get("output_fmt", "md")
@@ -160,7 +167,7 @@ class DeepEngine(EngineInterface):
                 f"{built['stem']}_{built.get('suffix', 'doc')}.{output_fmt}",
                 config.get("_used_output_names"),
             )
-            result.output_paths = self._write([os.path.join(output_dir, name)], [serialized])
+            self._write_resilient(result, [os.path.join(output_dir, name)], [serialized])
         return result
 
     def _result_multi(
@@ -186,12 +193,18 @@ class DeepEngine(EngineInterface):
         result.metadata["sheets"] = [
             {"sheet": s["sheet"], "rows": s["rows"], "cols": s["cols"]} for s in built["sheets"]
         ]
-        for sn, err in built["errors"]:
+        for sn, err in built.get("skipped", []):
+            # A skippable sheet (empty workbook state / caller named a
+            # non-existent sheet) lost no content — surface it as a warning so
+            # the result is still OK, not DEGRADED.
+            result.add_warning(f"工作表 {sn} 跳过： {err}")
+        for sn, err in built.get("errors", []):
             result.add_warning(f"工作表 {sn} 转换失败： {err}")
-        if built["errors"]:
-            # Partial success: some worksheets converted, some failed. This is
-            # a *degraded* result, not OK — otherwise the CLI exit code (which
-            # keys off ``success``) would report a damaged .xlsx as clean.
+        if built.get("errors"):
+            # Genuine per-sheet failures (not empty/missing sheets): some
+            # worksheets converted, some hit real errors. This is a *degraded*
+            # result, not OK — otherwise the CLI exit code would report a
+            # damaged .xlsx as clean.
             result.status = ConversionStatus.DEGRADED
         if output_dir:
             used = config.get("_used_output_names")
@@ -202,7 +215,7 @@ class DeepEngine(EngineInterface):
                 )
                 for s in built["sheets"]
             ]
-            result.output_paths = self._write(paths, serialized)
+            self._write_resilient(result, paths, serialized)
         return result
 
     @staticmethod
@@ -236,3 +249,21 @@ class DeepEngine(EngineInterface):
                 f.write(content)
             written.append(path)
         return written
+
+    @staticmethod
+    def _write_resilient(result: DocumentResult, paths: list[str], contents: list[str]) -> None:
+        """Write output files without letting a disk failure abort a good result.
+
+        The engine has already produced ``result.markdown``. A write failure
+        (e.g. ``PermissionError`` on an unwritable ``output_dir``) must NOT be
+        promoted to ``ERROR`` — that would discard the in-memory Markdown and
+        mislead the caller into thinking the conversion itself failed. Instead
+        the result is marked DEGRADED with a warning, the generated Markdown is
+        preserved, and no output paths are recorded.
+        """
+        try:
+            result.output_paths = DeepEngine._write(paths, contents)
+        except Exception as e:  # noqa: BLE001 - degrade, never drop the markdown
+            result.status = ConversionStatus.DEGRADED
+            result.add_warning(f"输出文件写入失败（保留内存结果）：{e}")
+            result.output_paths = []
