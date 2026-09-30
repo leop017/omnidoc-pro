@@ -198,6 +198,7 @@ def export_chunks_jsonl(result: DocumentResult, path: str) -> str:
                     "text": c.text,
                 },
                 ensure_ascii=False,
+                default=str,
             )
             f.write(line + "\n")
     return path

@@ -101,7 +101,10 @@ class ConversionController:
         md_paths = [p for p in result.output_paths if Path(p).suffix.lower() == ".md"]
         if len(md_paths) != 1:
             return
-        Path(md_paths[0]).write_text(result.markdown, encoding="utf-8")
+        try:
+            Path(md_paths[0]).write_text(result.markdown, encoding="utf-8")
+        except OSError as e:  # noqa: BLE001 - a locked/read-only file must not abort the batch
+            result.add_warning(f"清理后内容回写失败，保留引擎原始文件：{e}")
 
     # ── engine selection with graceful degradation ─────────────
 

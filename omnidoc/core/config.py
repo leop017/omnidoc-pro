@@ -8,7 +8,7 @@ never reach into an engine directly.
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -31,7 +31,14 @@ class LlmSettings(BaseModel):
     max_concurrency: int = 3
 
     def is_usable(self) -> bool:
-        return bool(self.enabled and self.base_url and self.api_key and self.model)
+        if not self.enabled or not self.base_url or not self.model:
+            return False
+        # Ollama's local OpenAI-compatible endpoint accepts any api_key
+        # (typically a placeholder like "ollama"); require it only for
+        # OpenAI-style providers.
+        if self.provider == "ollama":
+            return True
+        return bool(self.api_key)
 
 
 class CleaningSettings(BaseModel):
@@ -56,7 +63,7 @@ class ChunkingSettings(BaseModel):
     """Settings for the RAG chunkers (fixed / sentence / markdown)."""
 
     enabled: bool = False
-    strategy: str = "fixed"          # "fixed" | "sentence" | "markdown"
+    strategy: Literal["fixed", "sentence", "markdown"] = "fixed"
     chunk_size: int = 512
     chunk_overlap: int = 64
     max_chunk_size: int = 0          # >0 only caps the markdown chunker's split

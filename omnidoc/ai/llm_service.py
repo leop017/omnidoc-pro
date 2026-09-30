@@ -186,7 +186,8 @@ def _run_bounded(
     ``url → reason`` line per failed image, so per-image errors surface
     instead of being silently swallowed.
     """
-    max_concurrency = max(1, int(llm.get("max_concurrency", DEFAULT_MAX_CONCURRENCY)))
+    raw = llm.get("max_concurrency") or DEFAULT_MAX_CONCURRENCY
+    max_concurrency = max(1, int(raw))
 
     async def _main() -> list[Any]:
         sem = asyncio.Semaphore(max_concurrency)

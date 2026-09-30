@@ -125,5 +125,5 @@ def _source_format(source: str) -> str:
     import urllib.parse
 
     if "://" in source:
-        return urllib.parse.urlparse(source).path.rsplit("/", 1)[-1] or "url"
+        return (urllib.parse.urlparse(source).path.rsplit("/", 1)[-1] or "url").lower()
     return os.path.splitext(source)[1].lstrip(".").lower()

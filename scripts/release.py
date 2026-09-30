@@ -70,7 +70,9 @@ def ensure_twine() -> None:
         TOOLS.mkdir(exist_ok=True)
         print("[setup] 安装 twine 到 .tools/ …")
         sh([sys.executable, "-m", "pip", "install", "-t", str(TOOLS), "twine"])
-    os.environ["PYTHONPATH"] = str(TOOLS)
+    os.environ["PYTHONPATH"] = os.pathsep.join(
+        [str(TOOLS)] + ([os.environ["PYTHONPATH"]] if os.environ.get("PYTHONPATH") else [])
+    )
 
 
 # ── 子命令实现 ─────────────────────────────────────────────────────
@@ -79,7 +81,9 @@ def cmd_build(_args: argparse.Namespace) -> None:
     """构建 wheel + sdist 到 dist/。"""
     DIST.mkdir(exist_ok=True)
     for f in DIST.iterdir():
-        if f.name.startswith("omnidoc_pro") and f.suffix in (".whl", ".tar.gz"):
+        # Path.suffix only returns the final component (".gz" for a sdist),
+        # so match on the full ".tar.gz" suffix here instead.
+        if f.name.startswith("omnidoc_pro") and f.name.endswith((".whl", ".tar.gz")):
             f.unlink()
             print(f"[clean] {f.name}")
     print("[build] 构建 sdist + wheel …")
@@ -89,11 +93,18 @@ def cmd_build(_args: argparse.Namespace) -> None:
 
 
 def cmd_exe(args: argparse.Namespace) -> None:
-    """用 PyInstaller 构建 exe（很慢，仅当需要附 exe 时跑）。"""
-    if not args.skip_cli and SPEC_CLI.exists():
+    """用 PyInstaller 构建 exe（很慢，仅当需要附 exe 时跑）。
+
+    当从 ``all`` 子命令透传调用时，``args`` 上没有 ``skip_cli`` / ``skip_web``
+    属性（它们只在 ``exe`` 子命令的 parser 上定义），用 getattr 兜底为 False
+    让两个 spec 都构建。
+    """
+    skip_cli = getattr(args, "skip_cli", False)
+    skip_web = getattr(args, "skip_web", False)
+    if not skip_cli and SPEC_CLI.exists():
         print("[exe] 构建 CLI …")
         sh([sys.executable, "-m", "PyInstaller", str(SPEC_CLI), "--clean", "--noconfirm"])
-    if not args.skip_web and SPEC_WEB.exists():
+    if not skip_web and SPEC_WEB.exists():
         print("[exe] 构建 WebUI …")
         sh([sys.executable, "-m", "PyInstaller", str(SPEC_WEB), "--clean", "--noconfirm"])
 
