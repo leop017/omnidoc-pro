@@ -113,17 +113,20 @@ def _to_data_uri(url: str) -> str:
     """Return a vision-API-readable image source for ``url``.
 
     ``data:`` URIs and http(s) URLs pass through unchanged (the API reads
-    both directly); local paths are inlined as ``data:`` URIs. The *bare*
-    URL is required here — a full Markdown reference like ``![alt](url)``
-    is not a valid ``image_url`` value and the call would fail.
+    both directly); local *image* paths are inlined as ``data:`` URIs, while
+    local non-image files pass through untouched (a vision API cannot read
+    them, so sending one would only 400). The *bare* URL is required here —
+    a full Markdown reference like ``![alt](url)`` is not a valid
+    ``image_url`` value and the call would fail.
     """
     if url.startswith("data:"):
         return url
     if os.path.exists(url):
         mime = mimetypes.guess_type(url)[0] or "image/png"
-        with open(url, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode()
-        return f"data:{mime};base64,{b64}"
+        if mime.startswith("image/"):
+            with open(url, "rb") as f:
+                b64 = base64.b64encode(f.read()).decode()
+            return f"data:{mime};base64,{b64}"
     return url  # http(s) URL -> the API fetches it; unresolvable -> the call fails
 
 
