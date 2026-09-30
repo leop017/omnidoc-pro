@@ -93,9 +93,17 @@ class DocumentResult:
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
     elapsed: float = 0.0
+    # When chunking was enabled but produced 0 chunks for a non-empty
+    # document, the RAG index would be empty even though ``markdown`` is
+    # present.  Callers (CLI exit code, WebUI download gating) must treat
+    # that as a functional failure — ``success`` therefore returns False
+    # whenever ``rag_failed`` is set, regardless of markdown presence.
+    rag_failed: bool = False
 
     @property
     def success(self) -> bool:
+        if self.rag_failed:
+            return False
         return self.status in (ConversionStatus.OK, ConversionStatus.DEGRADED) and bool(
             self.markdown or self.chunks
         )

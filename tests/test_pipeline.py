@@ -274,7 +274,10 @@ class TestZeroChunkStatus(unittest.TestCase):
         pipeline._chunk(result, {"chunking": {"enabled": True, "strategy": "markdown"}})
         self.assertEqual(result.chunks, [])
         self.assertEqual(result.status, ConversionStatus.DEGRADED)
-        self.assertTrue(result.success)  # DEGRADED is still "success" for the CLI
+        self.assertTrue(result.rag_failed)  # 0-chunk flags a RAG functional failure
+        self.assertFalse(
+            result.success
+        )  # CLI must exit 1 even when markdown is present
 
     def test_nonzero_chunks_stay_ok(self):
         chunker = _Chunker()  # returns 2 chunks
@@ -286,6 +289,8 @@ class TestZeroChunkStatus(unittest.TestCase):
         )
         pipeline._chunk(result, {"chunking": {"enabled": True, "strategy": "fixed"}})
         self.assertEqual(result.status, ConversionStatus.OK)
+        self.assertFalse(result.rag_failed)
+        self.assertTrue(result.success)
 
 
 class TestRechunkAfterEnhance(unittest.TestCase):

@@ -129,6 +129,22 @@ def _is_safe_url(url: str) -> bool:
     return not any(_is_private_ip(ip) for ip in ips)
 
 
+def _charset_from_ctype(content_type: str) -> str:
+    """Extract charset from a Content-Type header value; default to UTF-8.
+
+    urllib3's ``HTTPHeaderDict`` exposes the raw header string but has no
+    ``get_content_charset()`` (that's a ``requests`` API).  We parse the
+    ``charset=`` parameter ourselves and fall back to UTF-8, which covers
+    the overwhelming majority of web pages.
+    """
+    import re
+
+    m = re.search(r"charset=([\w-]+)", content_type, re.IGNORECASE)
+    if m:
+        return m.group(1)
+    return "utf-8"
+
+
 def _fetch_via_ip(url: str, ip: str, timeout: float):
     """GET ``url`` while connecting to the pre-validated ``ip``.
 
@@ -190,7 +206,7 @@ def _fetch_safe_html(url: str, timeout: float = _FETCH_TIMEOUT) -> str:
             current = urljoin(current, location)
             continue
         resp.raise_for_status()
-        charset = resp.headers.get_content_charset() or "utf-8"
+        charset = _charset_from_ctype(resp.headers.get("Content-Type", ""))
         return resp.data.decode(charset, errors="replace")
     raise ValueError(f"重定向次数超过 {_MAX_REDIRECTS}")
 

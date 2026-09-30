@@ -151,6 +151,7 @@ class ProcessingPipeline:
                 # reflect that nothing chunkable was produced.
                 if result.status == ConversionStatus.OK:
                     result.status = ConversionStatus.DEGRADED
+                result.rag_failed = True
         except Exception as e:  # noqa: BLE001
             result.add_warning(f"chunking stage ({strategy}) failed: {e}")
 

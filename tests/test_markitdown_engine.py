@@ -170,6 +170,47 @@ class TestConvertDocument(unittest.TestCase):
         self.assertIs(result.status, ConversionStatus.OK)
         self.assertEqual(result.markdown, "MD:http://8.8.8.8/x")
 
+    def test_fetch_via_ip_extracts_charset_from_content_type(self):
+        """Regression for the 0.2.1 SSRF rewrite.
+
+        Before the fix, ``_fetch_via_ip`` returned a urllib3 ``HTTPResponse``
+        but the caller did ``resp.headers.get_content_charset()`` — a
+        *requests* API that urllib3's ``HTTPHeaderDict`` does not have, so
+        every public-URL body fetch raised ``AttributeError`` and the whole
+        conversion degraded to ``ERROR``.
+
+        The fix introduces ``_charset_from_ctype`` which reads the charset
+        from the raw ``Content-Type`` header string (urllib3 exposes no
+        ``get_content_charset``).  This test locks that helper's contract:
+        it must parse ``charset=`` case-insensitively, support both quoted
+        and bare tokens, and fall back to UTF-8 when the header is absent
+        or carries no charset parameter.
+        """
+        from omnidoc.engines.markitdown_engine import _charset_from_ctype
+
+        # charset= present: parsed case-insensitively, stripped of quotes.
+        self.assertEqual(
+            _charset_from_ctype("text/html; charset=gbk"), "gbk"
+        )
+        self.assertEqual(
+            _charset_from_ctype("text/html; charset=ISO-8859-1"),
+            "ISO-8859-1",
+        )
+        self.assertEqual(
+            _charset_from_ctype("text/html;charset=windows-1252"),
+            "windows-1252",
+        )
+        # No charset parameter: falls back to UTF-8 (covers the vast
+        # majority of modern web pages).
+        self.assertEqual(_charset_from_ctype("text/html"), "utf-8")
+        self.assertEqual(_charset_from_ctype("application/json"), "utf-8")
+        # Empty / missing header: still UTF-8, never None / raises.
+        self.assertEqual(_charset_from_ctype(""), "utf-8")
+        # Case-insensitive: only the ``charset=`` prefix is matched.
+        self.assertEqual(
+            _charset_from_ctype("text/HTML; CHARSET=gb2312"), "gb2312"
+        )
+
     def test_ssrf_blocks_document(self):
         engine = MarkItDownEngine()
         engine._md_class = _ok_converter()
