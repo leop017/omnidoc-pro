@@ -21,7 +21,7 @@ from omnidoc.processors.chunkers import get_chunker
 # Spreadsheet / HTML conversions emit real data rows — consecutive duplicate
 # table lines are common and meaningful in those outputs. The generic
 # "duplicate header" rule would silently delete them, so it is scoped out.
-_TABLE_FORMATS = {".xls", ".xlsx", ".html", ".htm"}
+_TABLE_FORMATS = {".xls", ".xlsx", ".csv", ".html", ".htm"}
 
 
 class ProcessingPipeline:
@@ -154,6 +154,11 @@ class ProcessingPipeline:
                 result.rag_failed = True
         except Exception as e:  # noqa: BLE001
             result.add_warning(f"chunking stage ({strategy}) failed: {e}")
+            # A chunking failure means no RAG-ready chunks were produced — same
+            # functional failure as the 0-chunks path above, so mark it too.
+            if result.status == ConversionStatus.OK:
+                result.status = ConversionStatus.DEGRADED
+            result.rag_failed = True
 
     def _enhance(self, result: DocumentResult, config: dict[str, Any]) -> DocumentResult:
         llm = config.get("llm") or {}

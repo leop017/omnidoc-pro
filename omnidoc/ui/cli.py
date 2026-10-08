@@ -24,6 +24,7 @@ except ImportError:  # typer is optional (the "cli" extra)
 _API_KEY_ENV = "OMNIDOC_LLM_API_KEY"
 _BASE_URL_ENV = "OMNIDOC_LLM_BASE_URL"
 _MODEL_ENV = "OMNIDOC_LLM_MODEL"
+_PROVIDER_ENV = "OMNIDOC_LLM_PROVIDER"
 
 
 # ── shared helpers (importable without typer) ────────────────────
@@ -35,10 +36,12 @@ def _resolve_llm(
     model: str,
     prompt: str,
     offline: bool,
+    provider: str = "",
 ) -> LlmSettings:
     """Merge CLI flags with env-var fallbacks into :class:`LlmSettings`."""
     return LlmSettings(
         enabled=enabled and not offline,
+        provider=provider or os.environ.get(_PROVIDER_ENV, "openai"),
         base_url=base_url or os.environ.get(_BASE_URL_ENV, ""),
         api_key=api_key or os.environ.get(_API_KEY_ENV, ""),
         model=model or os.environ.get(_MODEL_ENV, ""),
@@ -62,6 +65,7 @@ def _build_config(
     llm_api_key: str,
     llm_model: str,
     llm_prompt: str,
+    llm_provider: str = "",
 ) -> OmniDocConfig:
     cfg = OmniDocConfig(
         output_fmt=output_fmt,
@@ -75,7 +79,9 @@ def _build_config(
     cfg.chunking.chunk_size = chunk_size
     cfg.chunking.chunk_overlap = chunk_overlap
     cfg.chunking.max_chunk_size = chunk_max_size
-    cfg.llm = _resolve_llm(llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt, offline)
+    cfg.llm = _resolve_llm(
+        llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt, offline, llm_provider
+    )
     return cfg
 
 
@@ -145,6 +151,7 @@ if typer is not None:
         offline: bool = typer.Option(False, "--offline", help="离线模式，跳过 LLM 增强"),
         llm: bool = typer.Option(False, "--llm", help="启用 LLM 图像描述"),
         llm_base_url: str = typer.Option("", "--llm-base-url", help="LLM Base URL（或 env OMNIDOC_LLM_BASE_URL）"),
+        llm_provider: str = typer.Option("openai", "--llm-provider", help="LLM 提供商 openai/ollama（或 env OMNIDOC_LLM_PROVIDER）"),
         llm_api_key: str = typer.Option("", "--llm-api-key", help="LLM API Key（或 env OMNIDOC_LLM_API_KEY）"),
         llm_model: str = typer.Option("", "--llm-model", help="LLM 模型名（或 env OMNIDOC_LLM_MODEL）"),
         llm_prompt: str = typer.Option("", "--llm-prompt", help="自定义图像描述 Prompt"),
@@ -157,7 +164,7 @@ if typer is not None:
         cfg = _build_config(
             output_fmt, enhanced_md, not no_deep_first, not no_fallback,
             chunk, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
-            offline, llm, llm_base_url, llm_api_key, llm_model, llm_prompt,
+            offline, llm, llm_base_url, llm_api_key, llm_model, llm_prompt, llm_provider,
         )
         issues = cfg.chunking.validate_issues()
         if issues:
@@ -197,6 +204,7 @@ if typer is not None:
 
     def cmd_test_llm(
         base_url: str = typer.Option("", "--base-url", help="LLM Base URL（或 env OMNIDOC_LLM_BASE_URL）"),
+        provider: str = typer.Option("openai", "--provider", help="LLM 提供商 openai/ollama（或 env OMNIDOC_LLM_PROVIDER）"),
         api_key: str = typer.Option("", "--api-key", help="LLM API Key（或 env OMNIDOC_LLM_API_KEY）"),
         model: str = typer.Option("", "--model", help="LLM 模型名（或 env OMNIDOC_LLM_MODEL）"),
         timeout: float = typer.Option(30.0, "--timeout", help="连接超时（秒）"),
@@ -205,6 +213,7 @@ if typer is not None:
         status = test_llm_connection(
             {
                 "enabled": True,
+                "provider": provider or os.environ.get(_PROVIDER_ENV, "openai"),
                 "base_url": base_url or os.environ.get(_BASE_URL_ENV, ""),
                 "api_key": api_key or os.environ.get(_API_KEY_ENV, ""),
                 "model": model or os.environ.get(_MODEL_ENV, ""),

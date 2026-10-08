@@ -131,15 +131,16 @@ class ConversionController:
                 )
                 result.add_error(f"{type(e).__name__}: {e}")
             last = result
-            # Only a genuinely-successful engine output counts as a fallback
-            # win. A failed engine still carries placeholder Markdown inside
-            # its error result — treating non-empty Markdown as success would
-            # flip the status to DEGRADED and report ``success=True`` (exit
-            # code 0) even though every engine failed.
-            if result.status == ConversionStatus.OK:
+            # A genuinely-successful OR partially-successful (DEGRADED) engine
+            # output counts as a win and stops the chain. Only a hard ERROR
+            # keeps falling through to the next engine. (A failed engine still
+            # carries placeholder Markdown inside its error result — that must
+            # NOT be treated as success; only OK/DEGRADED may stop the chain.)
+            if result.status in (ConversionStatus.OK, ConversionStatus.DEGRADED):
                 if idx > 0:
                     result.fallback_used = True
-                    result.status = ConversionStatus.DEGRADED
+                    if result.status == ConversionStatus.OK:
+                        result.status = ConversionStatus.DEGRADED
                     result.add_warning(f"fell back to engine '{engine.name}'")
                 return result
 

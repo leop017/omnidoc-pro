@@ -80,13 +80,14 @@ pip install "omnidoc-pro[full]"
 pip install omnidoc-pro
 
 # 按需安装
-pip install "omnidoc-pro[markitdown]"   # 广度引擎（PDF/PPT/图片/HTML/CSV…）
+pip install "omnidoc-pro[markitdown]"   # 广度引擎核心（PDF/PPTX/HTML/CSV/图片等）
+pip install "omnidoc-pro[markitdown-all]"  # 广度引擎全量（含 PDF/PPTX/.msg/音频/YouTube 全部可选解析器）
 pip install "omnidoc-pro[llm]"          # LLM 图像描述
 pip install "omnidoc-pro[cli]"         # Typer 命令行
 pip install "omnidoc-pro[gui]"         # Gradio WebUI
 ```
 
-> `[full]` 安装已自动包含 MarkItDown 依赖。仅安装基础包时，广度引擎不可用（深度引擎正常），安装 `[markitdown]` 可启用。
+> `[full]` 安装已自动包含 MarkItDown **全量**依赖（`markitdown[all]`），覆盖 PDF/PPTX/.msg/音频/YouTube 等全部广度格式；基础安装的核心依赖已自带 Word/Excel/图片解析，仅缺上述广度格式。仅安装基础包时广度引擎不可用（深度引擎正常），安装 `[markitdown-all]` 可启用完整广度。
 
 ### 30 秒上手
 
@@ -277,7 +278,7 @@ git push origin vX.Y.Z
 
 ## 📊 版本
 
-当前版本 **0.2.8** — 完整变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
+当前版本 **0.2.9** — 完整变更日志见 [RELEASE_NOTES/](./RELEASE_NOTES/README.md)
 
 ## 👤 致谢
 

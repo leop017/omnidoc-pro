@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "omnidoc-pro"
-version = "0.2.8"
+version = "0.2.9"
 description = "OmniDoc Pro: one-stop local document pre-processing workbench for RAG — deep Word/Excel parsing + MarkItDown breadth + LLM enrichment, fully UI-decoupled."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -57,7 +57,7 @@ legacy-doc = ["textract"]
 test = ["pytest>=7.0.0", "pytest-mock>=3.10.0", "coverage>=7.0.0", "ruff>=0.4.0"]
 # Everything for a full-featured local install.
 full = [
-    "omnidoc-pro[markitdown,gui,llm,cli,test]",
+    "omnidoc-pro[markitdown-all,gui,llm,cli,test]",
 ]
 
 [project.urls]
