@@ -145,6 +145,25 @@ class TestBuildLlmKwargs(unittest.TestCase):
         kwargs = _build_llm_kwargs(llm, offline_mode=False)
         self.assertEqual(kwargs["llm_prompt"], "p")
 
+    def test_ollama_empty_api_key_gets_placeholder(self):
+        # Regression (H1): an Ollama provider with an empty api_key must
+        # still build the client kwargs, sending the "ollama" placeholder.
+        llm = {
+            "enabled": True,
+            "base_url": "http://x",
+            "api_key": "",
+            "model": "m",
+            "provider": "ollama",
+        }
+        kwargs = _build_llm_kwargs(llm, offline_mode=False)
+        self.assertIsInstance(kwargs["llm_client"], openai.OpenAI)
+        self.assertEqual(kwargs["llm_client"].api_key, "ollama")
+
+    def test_openai_style_empty_api_key_omitted(self):
+        # Historical strictness preserved for OpenAI-style providers.
+        llm = {"enabled": True, "base_url": "http://x", "api_key": "", "model": "m"}
+        self.assertEqual(_build_llm_kwargs(llm, offline_mode=False), {})
+
 
 class TestConvertDocument(unittest.TestCase):
 

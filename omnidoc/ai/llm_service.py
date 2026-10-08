@@ -55,21 +55,42 @@ def _bare_image_url(inner: str) -> str:
 
 # ── client construction ────────────────────────────────────────
 
+def _api_key_ok(llm: dict[str, Any]) -> bool:
+    """Provider-aware ``api_key`` requirement (dict mirror of
+    :meth:`omnidoc.core.config.LlmSettings.is_usable`).
+
+    Ollama's local OpenAI-compatible endpoint accepts any api_key (typically
+    a placeholder like "ollama"); require it only for OpenAI-style providers.
+    Raw dicts without a ``provider`` key (tests / hand-built configs) default
+    to the OpenAI behaviour, keeping the historical strictness.
+    """
+    if llm.get("provider") == "ollama":
+        return True
+    return bool(llm.get("api_key"))
+
+
+def _placeholder_api_key(llm: dict[str, Any]) -> str:
+    """Return the api_key to send, filling the Ollama placeholder when empty."""
+    return llm.get("api_key") or "ollama"
+
+
 def build_client(llm: dict[str, Any]) -> Optional[Any]:
     """Return an OpenAI-compatible client, or ``None`` when unusable/missing.
 
     Port of ``mdgui.llm._build_llm_kwargs`` (the client-building half). Requires
-    ``enabled`` + ``base_url`` + ``api_key`` + ``model`` and a working
-    ``openai`` install; anything else degrades to ``None``.
+    ``enabled`` + ``base_url`` + ``model`` and a working ``openai`` install; the
+    ``api_key`` requirement is provider-aware (see :func:`_api_key_ok`) — an
+    Ollama provider without a key gets the conventional placeholder instead of
+    a hard reject. Anything else degrades to ``None``.
     """
     if not llm:
         return None
-    if not (llm.get("enabled") and llm.get("base_url") and llm.get("api_key") and llm.get("model")):
+    if not (llm.get("enabled") and llm.get("base_url") and llm.get("model") and _api_key_ok(llm)):
         return None
     try:
         import openai
 
-        return openai.OpenAI(base_url=llm["base_url"], api_key=llm["api_key"])
+        return openai.OpenAI(base_url=llm["base_url"], api_key=_placeholder_api_key(llm))
     except Exception:  # noqa: BLE001 - degrades to offline
         return None
 
@@ -81,12 +102,12 @@ def test_llm_connection(llm: dict[str, Any]) -> str:
     base_url = llm.get("base_url")
     api_key = llm.get("api_key")
     model = llm.get("model")
-    if not base_url or not api_key or not model:
+    if not base_url or not model or not _api_key_ok(llm):
         return "❌ 请先填写 Base URL、API Key 和模型名称"
     try:
         import openai
 
-        client = openai.OpenAI(base_url=base_url, api_key=api_key)
+        client = openai.OpenAI(base_url=base_url, api_key=_placeholder_api_key(llm))
         timeout = float(llm.get("timeout", 30.0))
         t0 = time.perf_counter()
         resp = client.chat.completions.create(
@@ -109,21 +130,53 @@ def test_llm_connection(llm: dict[str, Any]) -> str:
 
 # ── bounded image description (System Rule #4) ─────────────────
 
+def _sniff_image_mime(path: str) -> Optional[str]:
+    """Sniff an image MIME type from file magic bytes.
+
+    ``mimetypes.guess_type`` returns ``None`` for unknown extensions and
+    extension-less files — falling back to ``image/png`` would inline
+    non-image garbage, while dropping the fallback would 400 real images
+    without a recognizable extension. Reading the first bytes resolves both:
+    a detected image returns its true MIME type, anything else ``None``.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(12)
+    except OSError:
+        return None
+    if head.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if head.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if head.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if head.startswith(b"BM"):
+        return "image/bmp"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def _to_data_uri(url: str) -> str:
     """Return a vision-API-readable image source for ``url``.
 
     ``data:`` URIs and http(s) URLs pass through unchanged (the API reads
     both directly); local *image* paths are inlined as ``data:`` URIs, while
     local non-image files pass through untouched (a vision API cannot read
-    them, so sending one would only 400). The *bare* URL is required here —
-    a full Markdown reference like ``![alt](url)`` is not a valid
-    ``image_url`` value and the call would fail.
+    them, so sending one would only 400). When the extension is unknown or
+    absent, the MIME type is sniffed from the file's magic bytes (see
+    :func:`_sniff_image_mime`) so real images still inline and non-images
+    still pass through. The *bare* URL is required here — a full Markdown
+    reference like ``![alt](url)`` is not a valid ``image_url`` value and
+    the call would fail.
     """
     if url.startswith("data:"):
         return url
     if os.path.exists(url):
-        mime = mimetypes.guess_type(url)[0] or "image/png"
-        if mime.startswith("image/"):
+        mime = mimetypes.guess_type(url)[0]
+        if mime is None:
+            mime = _sniff_image_mime(url)
+        if mime and mime.startswith("image/"):
             with open(url, "rb") as f:
                 b64 = base64.b64encode(f.read()).decode()
             return f"data:{mime};base64,{b64}"
@@ -250,7 +303,7 @@ class LlmEnhancer(EnhancerInterface):
         if bool(config.get("offline_mode", False)) or not llm.get("enabled"):
             result.add_warning("LLM 增强已跳过（offline_mode 或 LLM 未启用）")
             return result
-        if not (llm.get("base_url") and llm.get("api_key") and llm.get("model")):
+        if not (llm.get("base_url") and llm.get("model") and _api_key_ok(llm)):
             result.add_warning("LLM 增强已跳过（Base URL / API Key / 模型 配置不完整）")
             return result
 

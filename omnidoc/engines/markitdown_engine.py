@@ -23,6 +23,7 @@ import time
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+from omnidoc.ai.llm_service import _api_key_ok, _placeholder_api_key
 from omnidoc.core.document import Document, DocumentResult
 from omnidoc.core.interfaces import EngineInterface
 
@@ -221,13 +222,13 @@ def _build_llm_kwargs(llm: dict[str, Any], offline_mode: bool) -> dict[str, Any]
     kwargs: dict[str, Any] = {}
     if not llm or offline_mode:
         return kwargs
-    if llm.get("enabled") and llm.get("base_url") and llm.get("api_key") and llm.get("model"):
+    if llm.get("enabled") and llm.get("base_url") and llm.get("model") and _api_key_ok(llm):
         try:
             import openai
 
             kwargs["llm_client"] = openai.OpenAI(
                 base_url=llm["base_url"],
-                api_key=llm["api_key"],
+                api_key=_placeholder_api_key(llm),
                 timeout=float(llm.get("timeout", 30.0)),
             )
             kwargs["llm_model"] = llm["model"]

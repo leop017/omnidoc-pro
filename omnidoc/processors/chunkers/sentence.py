@@ -3,7 +3,7 @@
 Greedily accumulates sentences until the running window reaches
 ``chunk_size`` characters, then emits a chunk and starts a new window that
 reuses up to ``chunk_overlap`` characters of context. Boundary detection
-is heuristic: any of ``.``, ``!``, ``?``, ``。``, ``!``, ``?`` followed by
+is heuristic: any of ``.``, ``!``, ``?``, ``。``, ``！``, ``？`` followed by
 whitespace or end-of-string.
 """
 
@@ -16,7 +16,7 @@ from omnidoc.core.document import Chunk
 from omnidoc.core.interfaces import ChunkerInterface
 from omnidoc.processors.chunkers.base import coerce_to_document, make_chunk
 
-_BOUNDARY_RE = re.compile(r"(?<=[.!?。!?])\s+")
+_BOUNDARY_RE = re.compile(r"(?<=[.!?。！？])\s+")
 
 DEFAULT_CHUNK_SIZE = 512
 DEFAULT_OVERLAP = 64

@@ -119,6 +119,31 @@ class TestSentenceChunker(unittest.TestCase):
         self.assertIn("第一句", joined)
         self.assertIn("第四句", joined)
 
+    def test_fullwidth_terminators_split_with_offsets(self):
+        # Regression (H2): the boundary regex used to duplicate the ASCII
+        # ``!``/``?`` and miss the fullwidth ``！`` (U+FF01) / ``？``
+        # (U+FF1F) terminators, so multi-paragraph CJK text split into half
+        # the expected sentences.
+        from omnidoc.processors.chunkers.sentence import _split_with_offsets
+
+        text = "第一句。\n\n第二句！\n\n第三句？\n\n第四句。"
+        sentences = _split_with_offsets(text)
+        self.assertEqual(
+            [s.text for s in sentences],
+            ["第一句。", "第二句！", "第三句？", "第四句。"],
+        )
+
+    def test_fullwidth_multibyte_forces_separate_chunks(self):
+        # Chunk-level view of the same regression: with a small chunk_size
+        # each fullwidth-terminated sentence must land in its own chunk.
+        chunker = SentenceChunker()
+        text = "第一句。\n\n第二句！\n\n第三句？\n\n第四句。"
+        chunks = chunker.chunk(text, {"chunk_size": 6, "chunk_overlap": 0})
+        self.assertEqual(
+            [c.text for c in chunks],
+            ["第一句。", "第二句！", "第三句？", "第四句。"],
+        )
+
     def test_empty_text(self):
         chunker = SentenceChunker()
         self.assertEqual(chunker.chunk("", {}), [])

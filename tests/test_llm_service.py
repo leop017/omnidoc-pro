@@ -17,15 +17,20 @@ Markdown reference — so http(s) URLs, data URIs and local paths all reach
 the endpoint in a readable form.
 """
 
+import os
+import tempfile
 import unittest
 from unittest import mock
 
 from omnidoc.ai import llm_service
 from omnidoc.ai.llm_service import (
     LlmEnhancer,
+    _api_key_ok,
     _apply_descriptions,
     _describeable_image_refs,
+    _placeholder_api_key,
     _run_bounded,
+    _sniff_image_mime,
     _to_data_uri,
     build_client,
     extract_image_refs,
@@ -84,6 +89,32 @@ def _full_llm(**over):
     return cfg
 
 
+class TestApiKeyHelpers(unittest.TestCase):
+    """Regression (H1): Ollama's local OpenAI-compatible endpoint accepts any
+    api_key (typically a placeholder like "ollama"), so the api_key gate must
+    be provider-aware. Raw dicts without a ``provider`` key (tests /
+    hand-built configs) default to the historical strict OpenAI behaviour."""
+
+    def test_ollama_without_key_is_ok(self):
+        self.assertTrue(_api_key_ok({"provider": "ollama", "base_url": "http://x", "model": "m"}))
+
+    def test_ollama_with_key_is_ok(self):
+        self.assertTrue(_api_key_ok({"provider": "ollama", "api_key": "ollama"}))
+
+    def test_openai_style_requires_key(self):
+        self.assertFalse(_api_key_ok({"provider": "openai"}))
+        self.assertTrue(_api_key_ok({"provider": "openai", "api_key": "sk-x"}))
+
+    def test_raw_dict_defaults_to_strict(self):
+        self.assertFalse(_api_key_ok({}))
+        self.assertTrue(_api_key_ok({"api_key": "k"}))
+
+    def test_placeholder_fills_ollama_only(self):
+        self.assertEqual(_placeholder_api_key({"provider": "ollama"}), "ollama")
+        self.assertEqual(_placeholder_api_key({"provider": "ollama", "api_key": ""}), "ollama")
+        self.assertEqual(_placeholder_api_key({"provider": "openai", "api_key": "sk-x"}), "sk-x")
+
+
 class TestBuildClient(unittest.TestCase):
 
     def test_empty_config_returns_none(self):
@@ -103,6 +134,18 @@ class TestBuildClient(unittest.TestCase):
         # A complete config but a broken openai import must not raise.
         with mock.patch.dict("sys.modules", {"openai": None}):
             self.assertIsNone(build_client(_full_llm()))
+
+    def test_ollama_empty_api_key_builds_client(self):
+        # Regression (H1): an Ollama provider with an empty api_key must
+        # build the client, sending the "ollama" placeholder as the key.
+        with mock.patch("openai.OpenAI", return_value=object()) as oi:
+            client = build_client(_full_llm(provider="ollama", api_key=""))
+        self.assertIsInstance(client, object)
+        oi.assert_called_once_with(base_url="http://x", api_key="ollama")
+
+    def test_openai_style_empty_api_key_returns_none(self):
+        # Historical strictness preserved for OpenAI-style providers.
+        self.assertIsNone(build_client(_full_llm(api_key="")))
 
 
 class TestExtractImageRefs(unittest.TestCase):
@@ -269,6 +312,69 @@ class TestToDataUri(unittest.TestCase):
         self.assertTrue(out.startswith("data:image/png;base64,"))
 
 
+class TestToDataUriSniffing(unittest.TestCase):
+    """Regression (H3): unknown/absent extensions used to fall back to
+    ``image/png`` and inline non-image garbage. Magic-byte sniffing must
+    inline real images with unknown extensions while passing non-images
+    through untouched."""
+
+    PNG = b"\x89PNG\r\n\x1a\n" + b"rest-of-image"
+
+    @staticmethod
+    def _write(tmp, name, payload):
+        p = os.path.join(tmp, name)
+        with open(p, "wb") as f:
+            f.write(payload)
+        return p
+
+    def test_unknown_extension_real_png_inlined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._write(tmp, "img.xyz", self.PNG)
+            out = _to_data_uri(p)
+        self.assertTrue(out.startswith("data:image/png;base64,"))
+
+    def test_unknown_extension_non_image_passthrough(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._write(tmp, "blob.xyz", b"not an image at all")
+            self.assertEqual(_to_data_uri(p), p)
+
+    def test_extensionless_real_png_inlined(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._write(tmp, "img", self.PNG)
+            out = _to_data_uri(p)
+        self.assertTrue(out.startswith("data:image/png;base64,"))
+
+    def test_extensionless_non_image_passthrough(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._write(tmp, "blob", b"random bytes")
+            self.assertEqual(_to_data_uri(p), p)
+
+    def test_known_text_extension_still_passthrough(self):
+        # A known non-image MIME short-circuits before sniffing — even a
+        # .txt file carrying image magic bytes must pass through.
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._write(tmp, "note.txt", self.PNG)
+            self.assertEqual(_to_data_uri(p), p)
+
+    def test_sniffed_mime_variants(self):
+        cases = [
+            ("a.png", b"\x89PNG\r\n\x1a\nrest", "image/png"),
+            ("a.jpg", b"\xff\xd8\xff\xe0rest", "image/jpeg"),
+            ("a.gif", b"GIF89arest", "image/gif"),
+            ("a.bmp", b"BM\x00rest", "image/bmp"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, payload, expected in cases:
+                p = self._write(tmp, name, payload)
+                self.assertEqual(_sniff_image_mime(p), expected, name)
+            # WEBP needs the RIFF box plus the WEBP tag at offsets 8-12.
+            p = self._write(tmp, "a.webp", b"RIFF\x00\x00\x00\x00WEBPVP8")
+            self.assertEqual(_sniff_image_mime(p), "image/webp")
+
+    def test_sniff_missing_file_returns_none(self):
+        self.assertIsNone(_sniff_image_mime("Z:/definitely/not/there.png"))
+
+
 class TestLlmConnectionProbe(unittest.TestCase):
     """``test_llm_connection`` is a top-level function in the source module, so
     we call it directly here rather than as a pytest test function name — the
@@ -296,6 +402,22 @@ class TestLlmConnectionProbe(unittest.TestCase):
         self.assertIn("连接失败", msg)
         self.assertIn("boom", msg)
 
+    def test_probe_ollama_empty_api_key_succeeds(self):
+        # Regression (H1): the probe must run (not bail out with the
+        # 请先填写 hint) when an Ollama provider leaves the api_key empty.
+        fake = mock.Mock()
+        fake.chat.completions.create.return_value.choices = [
+            mock.Mock(message=mock.Mock(content=" pong\n"))
+        ]
+        with mock.patch("openai.OpenAI", return_value=fake):
+            msg = llm_service.test_llm_connection(_full_llm(provider="ollama", api_key=""))
+        self.assertIn("连接成功", msg)
+        self.assertIn("pong", msg)
+
+    def test_probe_openai_style_empty_api_key_returns_hint(self):
+        msg = llm_service.test_llm_connection(_full_llm(api_key=""))
+        self.assertIn("请先填写", msg)
+
 
 class TestLlmEnhancerEnhance(unittest.TestCase):
 
@@ -322,6 +444,21 @@ class TestLlmEnhancerEnhance(unittest.TestCase):
     def test_incomplete_config_skips(self):
         r = self._result("![](http://i/a.png)")
         self.enh.enhance(r, {"llm": {"enabled": True, "model": "m"}})
+        self.assertTrue(any("配置不完整" in w for w in r.warnings))
+
+    def test_ollama_empty_api_key_passes_config_gate(self):
+        # Regression (H1): an Ollama provider with an empty api_key must pass
+        # the 配置不完整 gate (its local endpoint needs no key) and proceed to
+        # the client-build path, instead of being skipped outright.
+        r = self._result("![](http://i/a.png)")
+        with mock.patch.object(llm_service, "build_client", return_value=None):
+            out = self.enh.enhance(r, {"llm": _full_llm(provider="ollama", api_key="")})
+        self.assertFalse(any("配置不完整" in w for w in out.warnings))
+        self.assertTrue(any("openai 未安装" in w for w in out.warnings))
+
+    def test_openai_style_empty_api_key_skips(self):
+        r = self._result("![](http://i/a.png)")
+        self.enh.enhance(r, {"llm": _full_llm(api_key="")})
         self.assertTrue(any("配置不完整" in w for w in r.warnings))
 
     def test_no_describable_refs_returns_cleanly(self):
