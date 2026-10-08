@@ -213,7 +213,7 @@ class ExcelBuilder:
     def _prepare(
         self, df: pd.DataFrame, merged_ranges: Optional[list]
     ) -> tuple:
-        """Return ``(rows_data, merged_map, max_cols)`` for one sheet."""
+        """Return ``(rows_data, merged_map, max_cols, df)`` for one sheet."""
         if df.empty:
             raise ValueError("工作表为空")
 
