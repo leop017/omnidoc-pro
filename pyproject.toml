@@ -55,9 +55,9 @@ cli = ["typer>=0.9.0"]
 legacy-doc = ["textract"]
 # Testing tooling.
 test = ["pytest>=7.0.0", "pytest-mock>=3.10.0", "coverage>=7.0.0", "ruff>=0.4.0"]
-# Everything for a full-featured local install.
+# Everything for a full-featured local install (including legacy .doc support).
 full = [
-    "omnidoc-pro[markitdown-all,gui,llm,cli,test]",
+    "omnidoc-pro[markitdown-all,gui,llm,cli,test,legacy-doc]",
 ]
 
 [project.urls]

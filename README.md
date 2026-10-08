@@ -9,7 +9,7 @@
 <p>
   <a href="https://pypi.org/project/omnidoc-pro/"><img alt="PyPI 版本" src="https://img.shields.io/pypi/v/omnidoc-pro?label=PyPI&color=blueviolet"></a>
   <img alt="Python 版本" src="https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blueviolet">
-  <img alt="测试" src="https://img.shields.io/badge/tests-292%20passed-rgb:4c1,1f6,1d4">
+  <img alt="测试" src="https://img.shields.io/badge/tests-395%20passed-rgb:4c1,1f6,1d4">
   <a href="./LICENSE"><img alt="许可" src="https://img.shields.io/badge/license-GPL%20v3%20%7C%20Commercial-rgb:4c1,1f6,1d4"></a>
 </p>
 <p>

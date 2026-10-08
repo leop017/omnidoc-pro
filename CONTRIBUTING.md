@@ -79,7 +79,7 @@ docs: 更新 WebUI 使用文档
 ## 发布说明
 
 - 版本号遵循 [SemVer](https://semver.org/lang/zh-CN/)：`MAJOR.MINOR.PATCH`
-- 发布时在 `CHANGELOG.md`（如有）中记录变更
+- 发布时在 `RELEASE_NOTES/` 中新增版本说明文件（参照已有格式，如 `RELEASE_NOTES/0.3.0.md`）
 - 打 tag：`git tag -a v0.2.0 -m "Release v0.2.0"`
 
 ## 行为准则
