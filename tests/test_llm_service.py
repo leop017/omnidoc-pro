@@ -328,15 +328,22 @@ class TestToDataUriSniffing(unittest.TestCase):
         return p
 
     def test_unknown_extension_real_png_inlined(self):
+        # Force the "unknown extension" path deterministically: on some
+        # platforms (Linux CI with the system MIME DB) the ``.xyz`` suffix
+        # is *not* unknown and maps to a non-image type, which would
+        # short-circuit before sniffing. Patching guess_type keeps the
+        # test platform-independent.
         with tempfile.TemporaryDirectory() as tmp:
             p = self._write(tmp, "img.xyz", self.PNG)
-            out = _to_data_uri(p)
+            with mock.patch("mimetypes.guess_type", return_value=(None, None)):
+                out = _to_data_uri(p)
         self.assertTrue(out.startswith("data:image/png;base64,"))
 
     def test_unknown_extension_non_image_passthrough(self):
         with tempfile.TemporaryDirectory() as tmp:
             p = self._write(tmp, "blob.xyz", b"not an image at all")
-            self.assertEqual(_to_data_uri(p), p)
+            with mock.patch("mimetypes.guess_type", return_value=(None, None)):
+                self.assertEqual(_to_data_uri(p), p)
 
     def test_extensionless_real_png_inlined(self):
         with tempfile.TemporaryDirectory() as tmp:
