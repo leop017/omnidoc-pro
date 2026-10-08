@@ -77,6 +77,20 @@ def _on_test_llm(base_url: str, api_key: str, model: str) -> str:
     )
 
 
+def _url_rejected_markdown(rejected: list[str]) -> str:
+    """Markdown shown when the URL box only contains non-http(s) entries.
+
+    The URL box is for web pages; local paths and other schemes are rejected
+    so they cannot be routed to the Deep Engine and read the server's local
+    filesystem. Use the 文档上传 field for local files instead.
+    """
+    items = "\n".join(f"- `{u}`" for u in rejected)
+    return (
+        "❌ URL 输入框只接受 `http://` 或 `https://` 网页地址。\n\n"
+        f"以下条目已被拒绝（请改用左侧「文档」上传框处理本地文件）：\n\n{items}"
+    )
+
+
 def _validate_chunking(
     chunking_enabled: bool,
     chunk_strategy: str,
@@ -222,15 +236,26 @@ def _on_convert(
     # gr.File(type="filepath") hands the callback plain path *strings*;
     # type="file" hands FileData objects (use .path / .name). Handle both.
     sources: list[str] = []
+    rejected_urls: list[str] = []
     for f in (files or []):
         path = f if isinstance(f, str) else (getattr(f, "path", None) or getattr(f, "name", None))
         if path:
             sources.append(path)
+    # The URL box is for web pages only. Reject anything that is not an
+    # http(s) URL so a local path pasted here cannot be routed to the Deep
+    # Engine (which would read the server's local filesystem).
     for u in (urls or "").splitlines():
         u = u.strip()
-        if u:
-            sources.append(u)
+        if not u:
+            continue
+        scheme = u.split("://", 1)[0].lower() if "://" in u else ""
+        if scheme not in ("http", "https"):
+            rejected_urls.append(u)
+            continue
+        sources.append(u)
     if not sources:
+        if rejected_urls:
+            return _url_rejected_markdown(rejected_urls), "URL 校验失败", "—", None
         return "等待上传文档或输入网页 URL…", "就绪", "—", None
 
     issue = _validate_chunking(
@@ -264,6 +289,8 @@ def _on_convert(
         line = f"{r.source} · 引擎={r.engine} · 状态={r.status.value}"
         if r.fallback_used:
             line += "（已降级）"
+        if r.rag_failed:
+            line += " · ⚠️ 分块失败（无 RAG chunks，已生成 Markdown 但未产出分块文件）"
         if r.chunks:
             total_chunks += len(r.chunks)
             line += f" · 分块={len(r.chunks)}"
