@@ -44,7 +44,7 @@ omnidoc webui
 ## 代码规范
 
 - **Python 版本**：3.10+，使用 type hints
-- **格式化**：遵循 [ruff](https://docs.astral.sh/ruff/) 规范（`ruff check .` / `ruff format .`）
+- **规范检查**：CI 强制执行 `ruff check .`；推荐在提交前运行 `ruff format .` 保持风格一致
 - **测试**：所有新功能需附带测试（`tests/` 目录，pytest + pytest-mock）
 - **类型检查**：提交前运行 `mypy omnidoc/`
 

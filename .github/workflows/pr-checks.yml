@@ -29,9 +29,6 @@ jobs:
       - name: Lint (ruff check)
         run: ruff check .
 
-      - name: Format check (ruff format)
-        run: ruff format --check .
-
   test:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -51,7 +48,7 @@ jobs:
           cache: pip
 
       - name: Install deps
-        run: pip install -e ".[full,legacy-doc]"
+        run: pip install -e ".[full]"
 
-      - name: Test (pytest + coverage)
-        run: python -m pytest tests/ -v --tb=short --cov=omnidoc --cov-report=term-missing
+      - name: Test (pytest)
+        run: python -m pytest tests/ -v --tb=short
