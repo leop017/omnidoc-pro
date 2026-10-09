@@ -183,6 +183,10 @@ class DeepEngine(EngineInterface):
                                     status=ConversionStatus.ERROR)
             for sn, err in built["errors"]:
                 result.add_error(f"{sn}: {err}")
+            for sn, err in built.get("skipped", []):
+                # Surface why nothing was produced: an all-empty workbook
+                # otherwise becomes a zero-diagnostic ERROR.
+                result.add_error(f"工作表 {sn} 跳过： {err}")
             return result
 
         serialized = [self._export(s["content"], output_fmt) for s in built["sheets"]]

@@ -272,7 +272,10 @@ class ExcelBuilder:
         # = <tbody>) instead of the DataFrame, whose column labels are
         # integer/``Unnamed`` under header=None and must never be rendered.
         def _cell(v: Any, tag: str) -> str:
-            text = html_mod.escape(escape_md_cell(safe_str(v)))
+            # Single-escape only: _escape_table_cells at L285 applies
+            # escape_md_cell to this output. A second escape_md_cell here
+            # would double-escape pipes (| -> \| -> \\|).
+            text = html_mod.escape(safe_str(v))
             return f"<{tag}>&nbsp;</{tag}>" if text == "" else f"<{tag}>{text}</{tag}>"
 
         head = rows_data[0] if rows_data else []
@@ -388,7 +391,8 @@ class ExcelBuilder:
             cells = []
             for col in range(1, max_cols + 1):
                 if header_covered.get((row_idx, col)):
-                    cells.append("<td>&nbsp;</td>")
+                    # Cell is already occupied by the header's rowspan:
+                    # emit nothing (mirrors the row_spans skip below).
                     continue
                 if row_spans.get((row_idx, col), False):
                     continue

@@ -138,6 +138,28 @@ class TestDeepAllSheetsFail:
         assert not res.success
         assert any("Sales" in e for e in res.errors)
 
+    def test_all_empty_workbook_has_actionable_diagnostics(self, tmp_path: Path):
+        """Regression: an .xlsx whose only sheet is empty used to surface as a
+        zero-diagnostic ERROR (``errors=[]`` / ``warnings=[]``), so the user
+        saw a failure with no reason. The skipped-sheet reasons must now be
+        surfaced on the ERROR result.
+        """
+        from omnidoc.core.document import ConversionStatus
+        from omnidoc.engines.deep_engine import DeepEngine
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Empty"
+        path = tmp_path / "all_empty.xlsx"
+        wb.save(str(path))
+
+        eng = DeepEngine()
+        res = eng.convert_document(str(path), {"output_fmt": "md"})
+        assert res.status == ConversionStatus.ERROR
+        assert not res.success
+        assert res.errors
+        assert any("Empty" in e for e in res.errors)
+
 
 class TestDegradation:
 

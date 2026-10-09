@@ -271,6 +271,23 @@ class TestGenerateMdStandard:
         assert "1" in md
         assert "2" in md
 
+    def test_pipe_cell_single_escaped(self):
+        """Regression: a | inside a cell must be escaped exactly once.
+
+        The standard generator pre-escaped cells with escape_md_cell and
+        then _escape_table_cells escaped again, turning | into \\| (two
+        backslashes) which breaks the rendered Markdown row.
+        """
+        b = ExcelBuilder()
+        md = b._generate_md_standard([["H1", "H2"], ["a|b", "c"]], 2)
+        # The pipe must be escaped with exactly one backslash (\\| in the
+        # source string = one backslash + pipe). A raw pipe breaks the row;
+        # two backslashes mean the escape was applied twice.
+        cell = [ln for ln in md.splitlines() if "a\\|b" in ln or "a|b" in ln]
+        assert cell, "cell 'a|b' missing from rendered table"
+        assert "a\\|b" in cell[0]      # one-backslash escape present
+        assert "\\\\" not in cell[0]   # no double-backslash anywhere
+
     def test_max_cols_pads_short_rows(self):
         b = ExcelBuilder()
         rows = [["H1", "H2", "H3"], ["A"]]  # data row shorter than max_cols
@@ -521,6 +538,40 @@ class TestMergedHeaderRowspan:
         # A4:B4 is a 2-col body merge -> master <td> carries colspan=2
         assert 'colspan="2"' in content
         assert 'data-colspan="2"' in content
+
+    def test_html_cross_row_header_merge_no_phantom_cells(self, tmp_path):
+        """Regression: a 2-row merged header cell (A1:B2) must not emit
+        <td>&nbsp;</td> placeholders into the sub-header row. The HTML table
+        model reserves those cells for the <th rowspan=2>, so emitting
+        placeholders would shift the sub-header into phantom columns.
+        """
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "S1"
+        # 2-row merged header across cols 1-2, sub-headers only in cols 3-4
+        ws.append(["A", "", "B", ""])
+        ws.merge_cells("A1:B2")
+        ws.append(["", "", "b1", "b2"])
+        # Body row: data in all 4 cols so dropna keeps it
+        ws.append(["x", "y", "z", "w"])
+        path = tmp_path / "cross_row.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        result = b.build(str(path), "html")
+        content = result["sheets"][0]["content"]
+        assert result["errors"] == []
+        # The sub-header row must carry exactly the 2 real cells
+        row2 = [ln for ln in content.splitlines() if 'data-row="2"' in ln][0]
+        assert "&nbsp;" not in row2
+        assert row2.count("<td>") == 2
+        assert "b1" in row2 and "b2" in row2
+        # The body row still lines up with the 4-column layout
+        row3 = [ln for ln in content.splitlines() if 'data-row="3"' in ln][0]
+        for v in ("x", "y", "z", "w"):
+            assert v in row3
 
     def test_enhanced_md_all_columns_have_values(self, tmp_path):
         """enhanced_md path should not drop header sub-rows."""
