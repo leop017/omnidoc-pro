@@ -76,9 +76,20 @@ class ProcessingPipeline:
         # index would miss the new captions. When nothing changed (no
         # describable refs / LLM off / offline) the markdown is identical and
         # this is a no-op.
-        if enhanced is result and result.chunks and result.markdown != markdown_before:
+        #
+        # ``_enhance`` normally mutates ``result`` in place and returns it
+        # (so ``enhanced is result``); but the EnhancerInterface contract
+        # permits returning a *new* DocumentResult (``enhanced is not
+        # result``). Re-chunk both cases whenever the final document text
+        # actually changed, comparing against the pre-enhance snapshot.
+        if result.chunks and enhanced.markdown != markdown_before:
+            if enhanced is not result:
+                # The enhancer returned a fresh object; rebind so the
+                # re-chunked chunks land on the object that actually carries
+                # the enriched text.
+                result = enhanced
             self._rechunk_if_stale(result, config)
-        return enhanced
+        return result
 
     def _rechunk_if_stale(self, result: DocumentResult, config: dict[str, Any]) -> None:
         """Re-run the chunk stage when the LLM enhancer desynced the chunks.
