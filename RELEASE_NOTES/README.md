@@ -4,6 +4,7 @@
 
 ## 版本
 
+- [0.3.1](./0.3.1.md) — LLM 增强返回新对象时的 re-chunk 一致性修复
 - [0.3.0](./0.3.0.md) — WebUI 并发批量转换防护（URL 输入框 scheme 校验 + rag_failed 状态提示）
 - [0.2.9](./0.2.9.md) — 降级链 DEGRADED 语义 + 广度依赖完整化 + Ollama 入口 + CSV 排重 + 分块异常标记
 - [0.2.8](./0.2.8.md) — Ollama provider 感知门控 + 全角句界正则 + 图片 MIME 魔数嗅探
