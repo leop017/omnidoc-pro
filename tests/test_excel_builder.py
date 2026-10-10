@@ -744,9 +744,9 @@ class TestEmptyAndMissingSheetSkipped:
         """End-to-end regression: the engine-level result for a workbook where
         every requested sheet is missing must carry at least one diagnostic
         (error or warning), never a bare ``ERROR`` with empty errors+warnings."""
-        from omnidoc.engines.deep_engine import DeepEngine
-        from omnidoc.core.document import ConversionStatus
         from openpyxl import Workbook
+
+        from omnidoc.engines.deep_engine import DeepEngine
 
         wb = Workbook()
         ws = wb.active
