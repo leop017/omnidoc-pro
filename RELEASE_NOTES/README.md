@@ -4,6 +4,7 @@
 
 ## 版本
 
+- [0.3.4](./0.3.4.md) — 三项零风险修复：Excel 增强 Markdown ≥2×2 合并列对齐 / 全部工作表缺失零诊断 ERROR / URL 重定向 scheme 防护
 - [0.3.3](./0.3.3.md) — Excel 增强 Markdown 合并单元格腿范围 off-by-one 修复（_excel.py）
 - [0.3.2](./0.3.2.md) — Excel 深度引擎 3 项零风险修复（HTML 错位 / Markdown 双转义 / 空表零诊断）
 - [0.3.1](./0.3.1.md) — LLM 增强返回新对象时的 re-chunk 一致性修复
