@@ -61,7 +61,7 @@ class WordBuilder:
         return {
             "content": content,
             "stem": clean_filename(Path(input_path).stem),
-            "suffix": "doc",
+            "suffix": "docx",
             "metadata": {
                 "source": Path(input_path).name,
                 "format": "docx",
