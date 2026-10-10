@@ -311,8 +311,7 @@ class ExcelBuilder:
             cells = []
             for col in range(1, max_cols + 1):
                 span_val = row_spans.get((row_idx, col))
-                if span_val is not None:
-                    cells.append(span_val)
+                if span_val:
                     continue
                 value = row_data[col - 1] if col <= len(row_data) else ""
                 key = (row_idx, col)
@@ -327,11 +326,9 @@ class ExcelBuilder:
                     else:
                         cell_value = "&nbsp;"
                     cells.append(f"<{tag}>{cell_value}</{tag}>")
-                    for r in range(cell_info.rowspan):
-                        for c in range(cell_info.colspan):
-                            if r == 0 and c == 0:
-                                continue
-                            row_spans[(row_idx + r, col + c)] = f"<{tag}>{cell_value}</{tag}>"
+                    for r in range(1, cell_info.rowspan):
+                        for c in range(1, cell_info.colspan):
+                            row_spans[(row_idx + r, col + c)] = True
                 else:
                     if value is not None and str(value).strip() != "":
                         cell_value = html_mod.escape(escape_md_cell(str(value)))

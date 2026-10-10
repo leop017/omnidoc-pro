@@ -584,6 +584,40 @@ class TestMergedHeaderRowspan:
         for cell in ("a1", "a2", "b1", "b2"):
             assert cell in content, f"missing {cell!r} in enhanced_md output"
 
+    def test_enhanced_md_2x2_merge_no_phantom_value(self, tmp_path):
+        """Regression: a 2x2 merged master in the enhanced-md path must not
+        spill its value into the merged legs. Before the fix, the leg-range
+        loop used range(0, rowspan)/range(0, colspan) (including the master
+        row/col) and stored the full "<td>..</td>" string into row_spans, so
+        unmerged adjacent cells inherited the master value and the column
+        layout shifted. The correct semantics mirror _build_html_table:
+        range(1, rowspan)/range(1, colspan) with a boolean marker, so the
+        legs render as empty placeholders."""
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "S1"
+        ws.append(["H1", "", "C3"])
+        ws.merge_cells("A1:B2")  # 2x2 merge, master A1 = H1
+        ws.append(["", "", "c3_2"])
+        ws.append(["", "", "c3_3"])
+        ws.append(["", "", "c3_4"])
+        path = tmp_path / "b1_2x2.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        result = b.build(str(path), "md", True)
+        assert result["errors"] == []
+        lines = [ln for ln in result["sheets"][0]["content"].splitlines() if ln.startswith("|")]
+        # Header row (markdown): "H1" spans the merge (colspan visually), so it
+        # appears only once; "C3" stays in its own column.
+        assert "H1" in lines[0]
+        # The merged legs (row 2 of the sheet, markdown body row 1) must NOT
+        # repeat the master value "H1" — the bug emitted "H1 | H1 | c3_2".
+        body_row = lines[2]
+        assert "H1" not in body_row, f"master value leaked into merged legs: {body_row!r}"
+
 
 class TestEmptyAndMissingSheetSkipped:
     """H1-deep regression: an *empty* sheet or a sheet the caller *named but
