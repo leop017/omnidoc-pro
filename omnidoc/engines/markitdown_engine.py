@@ -188,11 +188,16 @@ def _fetch_safe_html(url: str, timeout: float = _FETCH_TIMEOUT) -> str:
     Every hop is resolved, validated against the private-IP guard and pinned
     to the validated IP *before* connecting (closing the DNS-rebinding
     TOCTOU window); redirects are followed manually with re-validation at
-    every hop. Raises ``PermissionError`` when a hop resolves to a private
-    IP, ``ValueError`` on an unresolvable hostname or too many redirects.
+    every hop.  The scheme is re-checked per hop as well: only ``http``/``https``
+    are allowed, so a redirect to e.g. ``ftp://`` is rejected (the engine can
+    only feed http/https HTML to the converter anyway).  Raises
+    ``PermissionError`` when a hop resolves to a private IP, ``ValueError`` on
+    an unresolvable hostname, a non-http(s) scheme, or too many redirects.
     """
     current = url
     for _ in range(_MAX_REDIRECTS + 1):
+        if urlparse(current).scheme not in ("http", "https"):
+            raise ValueError(f"仅允许 http/https： {urlparse(current).scheme or current}")
         ips = _resolve_ip(current)
         if not ips:
             raise ValueError(f"无法解析主机名： {urlparse(current).hostname or current}")

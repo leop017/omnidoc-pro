@@ -617,6 +617,51 @@ class TestMergedHeaderRowspan:
         # repeat the master value "H1" — the bug emitted "H1 | H1 | c3_2".
         body_row = lines[2]
         assert "H1" not in body_row, f"master value leaked into merged legs: {body_row!r}"
+        # A 2x2 merge contributes an empty placeholder cell on its leg row, so
+        # every row must keep a consistent 3-column layout.  The pre-fix leg-skip
+        # collapsed the leg row to 2 cells and shifted c3_2 into column 2.
+        for i, ln in enumerate(lines):
+            assert len(ln.split("|")) - 2 == 3, (
+                f"row {i} has != 3 columns, c3 data would shift: {ln!r}"
+            )
+        # ``c3_2`` lands in the 3rd markdown column (col index 3 after split),
+        # not column 2 where the pre-fix leg-skip had shifted it.
+        assert "c3" in lines[2].split("|")[3], (
+            f"c3 data misaligned in body row: {lines[2]!r}"
+        )
+
+    def test_enhanced_md_2x2_merge_leg_row_alignment(self, tmp_path):
+        """Regression: a >=2x2 merge must not collapse its leg row in the
+        enhanced-md path.  The markdown table has no rowspan/colspan attributes,
+        so every merge leg must render as its own empty cell to keep column
+        counts consistent across rows."""
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "S1"
+        ws.append(["H1", "", "C3"])
+        ws.merge_cells("A1:B2")  # 2x2 merge, master A1 = H1
+        ws.append(["", "", "c3_2"])
+        ws.append(["", "", "c3_3"])
+        path = tmp_path / "b1_align.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        result = b.build(str(path), "md", True)
+        assert result["errors"] == []
+        lines = [ln for ln in result["sheets"][0]["content"].splitlines() if ln.startswith("|")]
+        # Every row must have exactly 3 columns.
+        for i, ln in enumerate(lines):
+            assert len(ln.split("|")) - 2 == 3, (
+                f"row {i} misaligned (got {len(ln.split('|')) - 2} cols): {ln!r}"
+            )
+        # ``c3_2`` (sheet row 2, col 3) must land in the 3rd markdown column
+        # (index 3 after ``split("|")``), not column 2 where the pre-fix
+        # leg-skip had shifted it.  ``"c3"`` matches the escaped ``c3\_2``.
+        assert "c3" in lines[2].split("|")[3], (
+            f"c3 data misaligned: {lines[2]!r}"
+        )
 
 
 class TestEmptyAndMissingSheetSkipped:
@@ -670,6 +715,54 @@ class TestEmptyAndMissingSheetSkipped:
         assert result["errors"] == []
         assert [sn for sn, _ in result["skipped"]] == ["Phantom"]
         assert result["metadata"]["skipped"] == ["Phantom"]
+
+    def test_all_requested_sheets_missing_yields_diagnostic_not_silent(self, tmp_path):
+        """Regression: when *every* sheet the caller named is absent, the
+        build must still surface that as a ``skipped`` entry (and mirror it in
+        ``metadata``) so the empty early-return no longer yields a
+        zero-diagnostic result (which ``DeepEngine._result_multi`` would
+        otherwise surface as ``ERROR`` with no errors/warnings)."""
+        from openpyxl import Workbook
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Real"
+        ws.append(["H"])
+        ws.append(["x"])
+        path = tmp_path / "real.xlsx"
+        wb.save(str(path))
+
+        b = ExcelBuilder()
+        result = b.build(str(path), "md", False, ["Nope"])
+
+        assert result["sheets"] == []
+        assert result["errors"] == []
+        # The missing sheet must be reported, not swallowed.
+        assert [sn for sn, _ in result["skipped"]] == ["Nope"]
+        assert result["metadata"]["skipped"] == ["Nope"]
+
+    def test_all_sheets_missing_via_engine_not_silent(self, tmp_path):
+        """End-to-end regression: the engine-level result for a workbook where
+        every requested sheet is missing must carry at least one diagnostic
+        (error or warning), never a bare ``ERROR`` with empty errors+warnings."""
+        from omnidoc.engines.deep_engine import DeepEngine
+        from omnidoc.core.document import ConversionStatus
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Real"
+        ws.append(["H"])
+        ws.append(["x"])
+        path = tmp_path / "real2.xlsx"
+        wb.save(str(path))
+
+        res = DeepEngine().convert_document(str(path), {"output_fmt": "md", "sheets": ["Nope"]})
+        has_diagnostic = bool(res.errors) or bool(res.warnings)
+        assert has_diagnostic, (
+            f"zero-diagnostic result: status={res.status} errors={res.errors} "
+            f"warnings={res.warnings}"
+        )
+
 
     def test_genuine_failure_still_in_errors(self, tmp_path):
         from openpyxl import Workbook

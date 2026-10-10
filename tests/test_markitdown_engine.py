@@ -123,6 +123,94 @@ class TestIsSafeUrl(unittest.TestCase):
             self.assertTrue(_is_safe_url("http://nowhere.invalid/x"))
 
 
+class TestFetchSafeHtmlSchemeGuard(unittest.TestCase):
+    """Regression: every redirect hop must keep a valid http/https scheme.
+
+    Before the fix, ``_fetch_safe_html`` re-validated the *IP* at each hop but
+    never re-checked the *scheme* of the redirect target, so a ``302`` to a
+    non-http(s) scheme (e.g. ``ftp://``) was silently followed — and, since
+    ``_fetch_via_ip`` treats any non-``https`` scheme as a plain HTTP (port 80)
+    request, it even reached the target on the wrong port.  The scheme must be
+    re-checked per hop so that only http/https are ever followed.
+    """
+
+    def _patch_ip_to_public(self):
+        """Pin every hop to a public IP so only the *scheme* guard is exercised."""
+        return mock.patch.object(
+            markitdown_engine, "_resolve_ip",
+            lambda _url: [markitdown_engine.ipaddress.ip_address("93.184.216.34")],
+        )
+
+    def test_redirect_to_ftp_is_rejected(self):
+        from omnidoc.engines.markitdown_engine import _fetch_safe_html
+
+        class _Resp:
+            def __init__(self, status, headers, data=b""):
+                self.status = status
+                self.headers = headers
+                self.data = data
+
+            @property
+            def is_redirect(self):
+                return self.status in (301, 302, 303)
+
+            @property
+            def is_temporary_redirect(self):
+                return self.status in (307, 308)
+
+            def raise_for_status(self):
+                pass
+
+        visited = []
+
+        def _fake_fetch(url, ip, timeout):
+            visited.append(url)
+            if len(visited) == 1:
+                return _Resp(302, {"Location": "ftp://93.184.216.34/evil"})
+            return _Resp(200, {"Content-Type": "text/html"}, b"<html>ok</html>")
+
+        with self._patch_ip_to_public(), mock.patch.object(
+            markitdown_engine, "_fetch_via_ip", _fake_fetch
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                _fetch_safe_html("http://93.184.216.34/page")
+        # The hop to the ftp target must never be fetched.
+        assert "ftp" not in " ".join(visited), f"followed a non-http(s) redirect: {visited}"
+        self.assertIn("http/https", str(ctx.exception))
+
+    def test_http_redirect_still_followed(self):
+        """A same-scheme http/https redirect must still work (no regression)."""
+        from omnidoc.engines.markitdown_engine import _fetch_safe_html
+
+        class _Resp:
+            def __init__(self, status, headers, data=b""):
+                self.status = status
+                self.headers = headers
+                self.data = data
+
+            @property
+            def is_redirect(self):
+                return self.status in (301, 302, 303)
+
+            @property
+            def is_temporary_redirect(self):
+                return self.status in (307, 308)
+
+            def raise_for_status(self):
+                pass
+
+        def _fake_fetch(url, ip, timeout):
+            if "step1" in url:
+                return _Resp(302, {"Location": "http://93.184.216.34/step2"})
+            return _Resp(200, {"Content-Type": "text/html"}, b"<html>final</html>")
+
+        with self._patch_ip_to_public(), mock.patch.object(
+            markitdown_engine, "_fetch_via_ip", _fake_fetch
+        ):
+            html = _fetch_safe_html("http://93.184.216.34/step1")
+        self.assertEqual(html, "<html>final</html>")
+
+
 class TestBuildLlmKwargs(unittest.TestCase):
 
     def test_offline_mode_returns_empty(self):

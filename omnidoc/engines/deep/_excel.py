@@ -305,14 +305,17 @@ class ExcelBuilder:
     def _generate_md_via_html(
         self, rows_data: list, merged_map: dict, max_cols: int, sheet_name: str,
     ) -> str:
-        row_spans: dict = {}
+        # Note: Unlike _build_html_table (which emits rowspan/colspan
+        # attributes), the markdown path renders a plain table with no
+        # attributes.  Every merge leg therefore renders as its own empty
+        # ``&nbsp;`` placeholder cell so that rows keep a consistent column
+        # count (e.g. a 2x2 merge contributes a <td> on both its master row
+        # and its leg row).  Skipping legs used to collapse those rows and
+        # shift subsequent columns.
         html_rows = ["<table>"]
         for row_idx, row_data in enumerate(rows_data, start=1):
             cells = []
             for col in range(1, max_cols + 1):
-                span_val = row_spans.get((row_idx, col))
-                if span_val:
-                    continue
                 value = row_data[col - 1] if col <= len(row_data) else ""
                 key = (row_idx, col)
                 cell_info = merged_map.get(key)
@@ -326,9 +329,6 @@ class ExcelBuilder:
                     else:
                         cell_value = "&nbsp;"
                     cells.append(f"<{tag}>{cell_value}</{tag}>")
-                    for r in range(1, cell_info.rowspan):
-                        for c in range(1, cell_info.colspan):
-                            row_spans[(row_idx + r, col + c)] = True
                 else:
                     if value is not None and str(value).strip() != "":
                         cell_value = html_mod.escape(escape_md_cell(str(value)))
@@ -449,26 +449,46 @@ class ExcelBuilder:
         stem = clean_filename(Path(input_path).stem)
 
         all_sheets = self.load_sheets(input_path, sheets)
-        if not all_sheets:
-            return {"sheets": [], "errors": [], "skipped": [], "metadata": {}, "stem": stem}
 
-        sheet_names = list(all_sheets.keys())
-        merged_cache = self._load_merged_cache(input_path, ext, sheet_names)
-        sn_overrides = dict(zip(sheet_names, unique_cleaned_suffixes(sheet_names)))
-
-        out_sheets: list[dict[str, Any]] = []
-        errors: list[tuple] = []
         # A sheet the caller *named* but the workbook does not hold is a
         # skippable condition (no content was lost), not a conversion failure.
         # ``load_sheets`` filters to the names it actually found, so detect the
         # gap here and seed ``skipped`` — the per-sheet loop below only ever
         # sees sheets that exist in ``all_sheets``.
+        #
+        # This runs *before* the empty early-return so that "every requested
+        # sheet is missing" still produces diagnostic info instead of a
+        # zero-diagnostic result (empty sheets + empty skipped → ERROR with
+        # no reason, downstream of _result_multi).
         requested: Optional[list[str]] = sheets
         skipped: list[tuple] = [
             (sn, "工作表不存在")
             for sn in requested
             if sn not in all_sheets
         ] if requested is not None else []
+
+        out_sheets: list[dict[str, Any]] = []
+        errors: list[tuple] = []
+
+        if not all_sheets:
+            return {
+                "sheets": [],
+                "errors": errors,
+                "skipped": skipped,
+                "stem": stem,
+                "source_name": source_name,
+                "metadata": {
+                    "source": source_name,
+                    "format": ext.lstrip("."),
+                    "sheet_count": 0,
+                    "skipped": [sn for sn, _ in skipped],
+                },
+            }
+
+        sheet_names = list(all_sheets.keys())
+        merged_cache = self._load_merged_cache(input_path, ext, sheet_names)
+        sn_overrides = dict(zip(sheet_names, unique_cleaned_suffixes(sheet_names)))
+
         # Validate the output format *before* the per-sheet loop. ``_sheet_content``
         # raises ``ValueError`` for an unsupported format, which must surface as a
         # genuine per-sheet *error* (one recorded entry per sheet), NOT be caught
