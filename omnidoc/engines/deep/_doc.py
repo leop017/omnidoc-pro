@@ -49,7 +49,7 @@ class DocBuilder:
                 wrapped = f"<pre>\n{html_mod.escape(text)}\n</pre>"
                 content = html_to_md(wrapped)
             else:
-                content = text
+                content = html_mod.escape(text)
             content = f"<!-- source: {source_name} | format: doc -->\n\n{content}"
         elif output_fmt == "json":
             content = {"source": source_name, "content": text}

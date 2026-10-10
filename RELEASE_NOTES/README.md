@@ -4,6 +4,7 @@
 
 ## 版本
 
+- [0.3.5](./0.3.5.md) — 零风险修复：Doc 引擎 `md` 非增强路径 HTML 转义（_doc.py）
 - [0.3.4](./0.3.4.md) — 三项零风险修复：Excel 增强 Markdown ≥2×2 合并列对齐 / 全部工作表缺失零诊断 ERROR / URL 重定向 scheme 防护
 - [0.3.3](./0.3.3.md) — Excel 增强 Markdown 合并单元格腿范围 off-by-one 修复（_excel.py）
 - [0.3.2](./0.3.2.md) — Excel 深度引擎 3 项零风险修复（HTML 错位 / Markdown 双转义 / 空表零诊断）
