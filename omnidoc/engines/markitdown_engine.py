@@ -140,7 +140,13 @@ def _charset_from_ctype(content_type: str) -> str:
     """
     import re
 
-    m = re.search(r"charset=([\w-]+)", content_type, re.IGNORECASE)
+    # RFC 2616 §4.1.2 allows the charset-value as a quoted-string, so
+    # ``charset="gbk"`` / ``charset='utf-8'`` must be honoured too; only
+    # the bare form was parsed before, which silently fell back to UTF-8
+    # and produced garbled text for e.g. GBK pages whose server quoted
+    # the value.  The regex now tolerates arbitrary whitespace after
+    # ``=`` and an optional single/double quote on either side.
+    m = re.search(r'charset=\s*["\']?([\w-]+)["\']?', content_type, re.IGNORECASE)
     if m:
         return m.group(1)
     return "utf-8"
@@ -213,7 +219,15 @@ def _fetch_safe_html(url: str, timeout: float = _FETCH_TIMEOUT) -> str:
             continue
         resp.raise_for_status()
         charset = _charset_from_ctype(resp.headers.get("Content-Type", ""))
-        return resp.data.decode(charset, errors="replace")
+        # ``errors="replace"`` only guards against UnicodeDecodeError, but a
+        # server-declared codec that CPython doesn't know (e.g. a misspelled
+        # or legacy ``charset=foobar``) raises ``LookupError`` at codec
+        # lookup — before the decoder even runs.  Degrade to UTF-8 rather
+        # than aborting the whole URL conversion.
+        try:
+            return resp.data.decode(charset, errors="replace")
+        except LookupError:
+            return resp.data.decode("utf-8", errors="replace")
     raise ValueError(f"重定向次数超过 {_MAX_REDIRECTS}")
 
 
