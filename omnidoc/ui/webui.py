@@ -71,9 +71,16 @@ def _cleanup_stale_tempdirs(max_age_hours: int = 24) -> int:
     return removed
 
 
-def _on_test_llm(base_url: str, api_key: str, model: str) -> str:
+def _on_test_llm(base_url: str, api_key: str, model: str, provider: str = "") -> str:
     return test_llm_connection(
-        {"enabled": True, "base_url": base_url or "", "api_key": api_key or "", "model": model or "", "timeout": 30.0}
+        {
+            "enabled": True,
+            "provider": provider or os.environ.get("OMNIDOC_LLM_PROVIDER", "openai"),
+            "base_url": base_url or "",
+            "api_key": api_key or "",
+            "model": model or "",
+            "timeout": 30.0,
+        }
     )
 
 
@@ -132,6 +139,7 @@ def _build_config(
     llm_api_key: str,
     llm_model: str,
     llm_prompt: str,
+    llm_provider: str = "",
 ) -> OmniDocConfig:
     cfg = OmniDocConfig(
         output_fmt=output_fmt,
@@ -150,6 +158,7 @@ def _build_config(
     cfg.llm.api_key = llm_api_key or ""
     cfg.llm.model = llm_model or ""
     cfg.llm.prompt = llm_prompt or ""
+    cfg.llm.provider = llm_provider or os.environ.get("OMNIDOC_LLM_PROVIDER", "openai")
     return cfg
 
 
@@ -231,6 +240,7 @@ def _on_convert(
     llm_api_key,
     llm_model,
     llm_prompt,
+    llm_provider="",
 ):
     """Convert every uploaded file / URL via the controller (batch-safe)."""
     # gr.File(type="filepath") hands the callback plain path *strings*;
@@ -269,7 +279,7 @@ def _on_convert(
     cfg = _build_config(
         output_fmt, enhanced_md, deep_first, allow_fallback,
         chunking_enabled, chunk_strategy, chunk_size, chunk_overlap, chunk_max_size,
-        offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt,
+        offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt, llm_provider,
     )
     out_dir = tempfile.mkdtemp(prefix="omnidoc_webui_")
     cfg.output_dir = out_dir
@@ -342,10 +352,18 @@ def build_app() -> gr.Blocks:
                     llm_api_key = gr.Textbox(placeholder="sk-...", label="API Key", type="password")
                     llm_model = gr.Textbox(placeholder="gpt-4o", label="模型")
                     llm_prompt = gr.Textbox(placeholder="请描述这张图片", label="自定义 Prompt（可选）")
+                    # LLM provider selector (openai/ollama). Defaults to openai;
+                    # mirror of CLI `--llm-provider`. Lets the test-ahead probe
+                    # apply the same provider-aware api_key gating as CLI.
+                    llm_provider = gr.Radio(["openai", "ollama"], value="openai", label="Provider")
                     with gr.Row():
                         test_btn = gr.Button("测试连接", size="sm", variant="secondary")
                         llm_status = gr.Textbox(interactive=False, label=None)
-                    test_btn.click(_on_test_llm, inputs=[llm_base_url, llm_api_key, llm_model], outputs=[llm_status])
+                    test_btn.click(
+                        _on_test_llm,
+                        inputs=[llm_base_url, llm_api_key, llm_model, llm_provider],
+                        outputs=[llm_status],
+                    )
                 convert_btn = gr.Button("⚡ 开始转换", variant="primary")
             with gr.Column(scale=2):
                 md_out = gr.Markdown("等待上传文档或输入网页 URL…")
@@ -354,13 +372,14 @@ def build_app() -> gr.Blocks:
                 file_out = gr.File(label="📥 下载转换结果", file_count="multiple")
 
         convert_btn.click(
-            _on_convert,
-            inputs=[files, urls, output_fmt, enhanced_md, deep_first, allow_fallback,
-                    chunking_enabled, chunk_strategy, chunk_size, chunk_overlap,
-                    chunk_max_size,
-                    offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt],
-            outputs=[md_out, status_box, count_box, file_out],
-        )
+        _on_convert,
+        inputs=[files, urls, output_fmt, enhanced_md, deep_first, allow_fallback,
+                chunking_enabled, chunk_strategy, chunk_size, chunk_overlap,
+                chunk_max_size,
+                offline_mode, llm_enabled, llm_base_url, llm_api_key, llm_model, llm_prompt,
+                llm_provider],
+        outputs=[md_out, status_box, count_box, file_out],
+    )
     return app
 
 

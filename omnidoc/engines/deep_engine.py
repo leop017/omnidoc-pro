@@ -62,7 +62,7 @@ class DeepEngine(EngineInterface):
             raise ValueError(_MISSING_DOC_MSG)
         output_fmt = config.get("output_fmt", "md")
         enhanced = bool(config.get("enhanced_md", False))
-        rules = config.get("cleaning_rules")
+        rules = config.get("cleaning_rules") if config.get("cleaning_enabled", True) else {}
         sheets: Optional[list[str]] = config.get("sheets")
 
         ext = _ext(source)
@@ -90,7 +90,7 @@ class DeepEngine(EngineInterface):
     def convert_document(self, source: str, config: dict[str, Any]) -> DocumentResult:
         output_fmt = config.get("output_fmt", "md")
         enhanced = bool(config.get("enhanced_md", False))
-        rules = config.get("cleaning_rules")
+        rules = config.get("cleaning_rules") if config.get("cleaning_enabled", True) else {}
         sheets: Optional[list[str]] = config.get("sheets")
         output_dir = config.get("output_dir")
 

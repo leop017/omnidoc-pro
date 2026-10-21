@@ -123,6 +123,7 @@ class OmniDocConfig(BaseModel):
             "allow_fallback": self.allow_fallback,
             "llm": self.llm.model_dump(),
             "cleaning_rules": self.cleaning.as_rules(),
+            "cleaning_enabled": self.cleaning.enabled,
             "chunking": self.chunking.model_dump(),
             "extra": self.extra,
         }

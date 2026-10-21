@@ -116,6 +116,8 @@ class ProcessingPipeline:
     def _clean(self, result: DocumentResult, config: dict[str, Any]) -> None:
         if self.cleaner is None:
             return
+        if not config.get("cleaning_enabled", True):
+            return
         rules = config.get("cleaning_rules")
         if not rules or not any(rules.values()):
             return
