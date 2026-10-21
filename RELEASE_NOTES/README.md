@@ -4,6 +4,7 @@
 
 ## 版本
 
+- [0.3.8](./0.3.8.md) — 零风险修复：URL 抓取 charset 解析（带引号 charset / 未知 codec 回退 UTF-8）
 - [0.3.7](./0.3.7.md) — 零风险修复：CleaningSettings.enabled 实现 + WebUI LLM provider 透传
 - [0.3.6](./0.3.6.md) — 零风险修复：WordBuilder `suffix` 字段由 `doc` 改为 `docx`（_word.py）
 - [0.3.4](./0.3.4.md) — 三项零风险修复：Excel 增强 Markdown ≥2×2 合并列对齐 / 全部工作表缺失零诊断 ERROR / URL 重定向 scheme 防护
