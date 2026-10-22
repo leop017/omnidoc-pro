@@ -153,7 +153,7 @@ def _build_config(
     cfg.chunking.chunk_size = int(chunk_size or 0)
     cfg.chunking.chunk_overlap = int(chunk_overlap or 0)
     cfg.chunking.max_chunk_size = int(chunk_max_size or 0)
-    cfg.llm.enabled = bool(llm_enabled)
+    cfg.llm.enabled = bool(llm_enabled) and not bool(offline_mode)
     cfg.llm.base_url = llm_base_url or ""
     cfg.llm.api_key = llm_api_key or ""
     cfg.llm.model = llm_model or ""

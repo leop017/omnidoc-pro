@@ -1,7 +1,7 @@
 # 设计方案：RAG Benchmark + 高级 Chunk 策略
 
 - 状态：已评审（必要性 §6 / 可行性 §7，2026-10-12）· 暂缓实施，日后再做
-- 基线：omnidoc-pro 0.3.8（410 tests passed，chunk 偏移量 round-trip 不变量已验证）
+- 基线：omnidoc-pro 0.3.9（421 tests passed，chunk 偏移量 round-trip 不变量已验证）
 - 关联模块：`omnidoc/processors/chunkers/`、`omnidoc/core/config.py`、`omnidoc/controller/conversion.py`、`omnidoc/processors/pipeline.py`
 
 ---
@@ -164,7 +164,7 @@ parent_child: bool = False            # layout/markdown
 
 | 阶段 | 内容 | 验收标准 |
 |---|---|---|
-| P0 | benchmark 骨架：dataset/tokenizers/BM25/metrics/runner/report/CLI + 3 套 fixture | 410 旧测试全绿；benchmark 同输入双跑逐字节一致；输出 coverage=100% |
+| P0 | benchmark 骨架：dataset/tokenizers/BM25/metrics/runner/report/CLI + 3 套 fixture | 421 旧测试全绿；benchmark 同输入双跑逐字节一致；输出 coverage=100% |
 | P1 | `layout` + `breadcrumb` + `recursive`；benchmark 设门槛 | 表格密集 fixture：layout 的 span_integrity 与 Recall@5 ≥ markdown 基线；boundary_quality 提升；无 coverage 回归 |
 | P2 | `semantic`（含降级链）+ `parent_child` + small-to-big 评测 + LLM 可选摘要（**条件必要**：P0/P1 数据确认仍有缺口后启动） | 无 embedder 时降级为 sentence 且有 warning；有 embedder 时改述类问题 Recall@5 ≥ sentence 基线 |
 
@@ -193,7 +193,7 @@ parent_child: bool = False            # layout/markdown
 
 ### 6.1 问题真实存在且有实证
 
-1. **分块是一等功能，质量却不可度量**。CLI/WebUI 暴露 `--chunk-strategy`、`export_chunks`，pipeline 有 `rag_failed` 语义——"RAG-ready"是核心卖点，但 410 个测试全部验证**结构正确性**（偏移 round-trip、元数据），无一回答"这样切对 RAG 好不好"。质量盲区 = 卖点无证据。
+1. **分块是一等功能，质量却不可度量**。CLI/WebUI 暴露 `--chunk-strategy`、`export_chunks`，pipeline 有 `rag_failed` 语义——"RAG-ready"是核心卖点，但 421 个测试全部验证**结构正确性**（偏移 round-trip、元数据），无一回答"这样切对 RAG 好不好"。质量盲区 = 卖点无证据。
 2. **审计已实证真实缺陷且无法量化影响**：markdown 策略不感知代码围栏（运行时探针复现：代码注释被误判为标题并错误分块）；fixed/sentence 会把深度引擎的核心产出——表格——拦腰切断。影响多大、用户该选哪个策略，目前无数据可答。
 3. **"修复即风险"的死锁只有新路径能解**。审计结论：对旧 chunker 的原地修复均为行为变更、非零风险。benchmark + opt-in 新策略是唯一同时满足"改进"与"零回归风险"的演进方式；没有 benchmark，新策略连验收标准都无法定义。
 
@@ -201,7 +201,7 @@ parent_child: bool = False            # layout/markdown
 
 | 替代方案 | 否决理由 |
 |---|---|
-| 不做，维持现状 | 质量盲区持续；引擎侧任何重构都可能造成检索质量**静默回归**且现有测试无法拦截；0.3.8 已达加固平台期（审计确认无剩余零风险修复项），项目失去可度量的演进轴 |
+| 不做，维持现状 | 质量盲区持续；引擎侧任何重构都可能造成检索质量**静默回归**且现有测试无法拦截；0.3.9 已达加固平台期（审计确认无剩余零风险修复项），项目失去可度量的演进轴 |
 | 引入 LangChain/LlamaIndex splitter | 违背零硬依赖核心原则；外部 splitter **不保留源文偏移**——接入等于放弃审计已验证的 round-trip 核心资产 |
 | 引入 Ragas/TruLens 评测 | LLM-judge 中心、依赖网络、非确定性，与项目"离线可跑、双跑逐字节一致才进 CI"哲学冲突；BM25+结构指标是最小必要内核 |
 | 只修旧策略不加 benchmark | 审计已证明该类修复必然是行为变更，改完无法证明"变好了"还是"只是变了" |
@@ -253,4 +253,4 @@ parent_child: bool = False            # layout/markdown
 2. **策略注册点**：`omnidoc/processors/chunkers/__init__.py::get_chunker` 工厂表 + `config.py::ChunkingSettings` Literal。
 3. **降级与元数据注入统一走 pipeline**：`_chunk` 层做 semantic 预检降级；chunks 产出后做 breadcrumb/parent_child 后处理（勿散落进 chunker）。
 4. **验收门槛挂载**：`.github/workflows/pr-checks.yml` 新增 benchmark job（coverage=100% 硬门槛 + Recall@5/span_integrity 相对基线 −1pp 容差）。
-5. **开工前置**：重读本文件 §1.2 数据契约与 §2 各算法小节；基线测试需保持全绿（评审时点 404 passed；当前基线 410 passed）。
+5. **开工前置**：重读本文件 §1.2 数据契约与 §2 各算法小节；基线测试需保持全绿（评审时点 404 passed；当前基线 421 passed）。

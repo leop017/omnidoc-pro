@@ -42,14 +42,19 @@ def _bare_image_url(inner: str) -> str:
     ``)`` — so a CommonMark title (``![alt](url "title")``) or a URL wrapped
     in angle brackets (``![alt](<url with spaces>)``) leaks the title /
     brackets into ``inner``. Feeding that straight to a vision API yields a
-    400 / unresolvable URL. Strip a trailing quoted title and the angle
-    brackets to recover the URL the API actually needs.
+    400 / unresolvable URL.
+
+    CommonMark allows the *combination* (``![alt](<url> "title")``): the
+    quoted title comes *after* the closing ``>``. Strip the trailing quoted
+    title first, *then* unwrap any angle brackets — the two steps must not
+    be mutually exclusive, otherwise the bracket form with a title leaks
+    the ``<`` / ``>`` into the URL handed to the API.
     """
     s = inner.strip()
+    if '"' in s or "'" in s:
+        s = re.sub(r"\s+[\"'].*[\"']$", "", s).strip()
     if s.startswith("<") and s.endswith(">"):
         s = s[1:-1].strip()
-    elif '"' in s or "'" in s:
-        s = re.sub(r"\s+[\"'].*[\"']$", "", s)
     return s
 
 
