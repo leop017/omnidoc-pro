@@ -16,7 +16,7 @@ P2: webui._build_config must merge ``offline_mode`` into ``cfg.llm.enabled``
 """
 import unittest
 
-from omnidoc.ai.llm_service import _bare_image_url, _IMAGE_ALT_RE
+from omnidoc.ai.llm_service import _IMAGE_ALT_RE, _bare_image_url
 from omnidoc.ui.webui import _build_config
 
 
